@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1">
+    <title>Valentine Installer</title>
+    <license file="License.txt"/>
+    <pkg-ref id="dev.jesuschapman.Valentine"/>
+    <options customize="never" require-scripts="false" hostArchitectures="arm64"/>
+    <choices-outline>
+        <line choice="default">
+            <line choice="dev.jesuschapman.Valentine"/>
+        </line>
+    </choices-outline>
+    <choice id="default"/>
+    <choice id="dev.jesuschapman.Valentine" visible="false">
+        <pkg-ref id="dev.jesuschapman.Valentine"/>
+    </choice>
+    <pkg-ref id="dev.jesuschapman.Valentine" version="1.0 - 001" onConclusion="none">Valentine-component.pkg</pkg-ref>
+</installer-gui-script>

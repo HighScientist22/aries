@@ -10,6 +10,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject var engine: AudioEngine
+    @Environment(\.colorScheme) var colorScheme
     @State private var isTargeted = false
     @State private var isPlaylistVisible = true
     @State private var wasWide = true
@@ -121,12 +122,31 @@ struct ContentView: View {
     
     private var emptyStateView: some View {
         VStack(spacing: 24) {
-            Image(systemName: "play.circle.fill")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 100, height: 100)
-                .foregroundColor(.blue)
-                .shadow(color: .blue.opacity(0.3), radius: 10, x: 0, y: 5)
+            if let appIcon = NSImage(named: NSImage.applicationIconName) {
+                Image(nsImage: appIcon)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 140, height: 140)
+                    .shadow(color: colorScheme == .dark ? .white.opacity(0.6) : .accentColor.opacity(0.4), radius: 25, x: 0, y: 0)
+                    .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
+                    .overlay(
+                        Image(nsImage: appIcon)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 140, height: 140)
+                            .scaleEffect(x: 1, y: -1)
+                            .mask(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [.clear, .white.opacity(0.3)]),
+                                    startPoint: .bottom,
+                                    endPoint: .top
+                                )
+                            )
+                            .opacity(0.5)
+                            .offset(y: 140)
+                    )
+                    .padding(.bottom, 60)
+            }
             
             Text("Valentine")
                 .font(.system(size: 32, weight: .bold, design: .rounded))
