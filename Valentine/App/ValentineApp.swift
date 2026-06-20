@@ -7,14 +7,21 @@
 
 import SwiftUI
 
+class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSWindow.allowsAutomaticWindowTabbing = false
+    }
+}
+
 @main
 struct ValentineApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     var body: some Scene {
         WindowGroup {
             RootView()
         }
         .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
+        .windowResizability(.contentMinSize)
         .commands {
             ValentineCommands()
         }
@@ -26,12 +33,11 @@ struct ValentineApp: App {
         .windowResizability(.contentSize)
         .defaultSize(width: 650, height: 480)
         
-        Window("Modify Appearance", id: "lyricsAppearance") {
-            LyricsAppearanceView()
+        Window("Settings", id: "settings") {
+            SettingsView()
         }
         .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
-        .defaultSize(width: 400, height: 600)
+        .windowResizability(.contentMinSize)
     }
 }
 
@@ -52,12 +58,15 @@ struct RootView: View {
                     .environmentObject(engine)
             }
         }
-        .preferredColorScheme(appTheme == 1 ? .light : (appTheme == 2 ? .dark : nil))
         .animation(.easeInOut, value: isMiniPlayerMode)
         .onAppear {
+            updateTheme(theme: appTheme)
             configureWindow(forMiniPlayer: isMiniPlayerMode)
         }
-        .onChange(of: isMiniPlayerMode) { newValue in
+        .onChange(of: appTheme) { _, newTheme in
+            updateTheme(theme: newTheme)
+        }
+        .onChange(of: isMiniPlayerMode) { _, newValue in
             configureWindow(forMiniPlayer: newValue)
         }
         .sheet(isPresented: $engine.showLyricsEditor) {
@@ -76,11 +85,28 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReinstallMutagen"))) { _ in engine.showMutagenInstaller = true }
     }
     
+    private func updateTheme(theme: Int) {
+        #if os(macOS)
+        DispatchQueue.main.async {
+            let appearance: NSAppearance?
+            switch theme {
+            case 1: appearance = NSAppearance(named: .aqua)
+            case 2: appearance = NSAppearance(named: .darkAqua)
+            default: appearance = nil
+            }
+            NSApplication.shared.appearance = appearance
+        }
+        #endif
+    }
+    
     private func configureWindow(forMiniPlayer: Bool) {
         #if os(macOS)
         DispatchQueue.main.async {
             for window in NSApplication.shared.windows {
                 if window.className == "NSWindow" || window.className.contains("SwiftUI") {
+                    let id = window.identifier?.rawValue ?? ""
+                    if id.contains("settings") || id.contains("about") { continue }
+                    
                     window.level = forMiniPlayer ? .floating : .normal
                     window.standardWindowButton(.closeButton)?.isHidden = forMiniPlayer
                     window.standardWindowButton(.miniaturizeButton)?.isHidden = forMiniPlayer
@@ -119,11 +145,7 @@ struct RootView: View {
 }
 
 struct ValentineCommands: Commands {
-    @AppStorage("isGlowEffectEnabled") private var isGlowEffectEnabled = false
-    @AppStorage("isNeonEffectEnabled") private var isNeonEffectEnabled = false
     @AppStorage("isMiniPlayerMode") private var isMiniPlayerMode = false
-    @AppStorage("miniPlayerGlassMode") private var miniPlayerGlassMode = 0
-    @AppStorage("appTheme") private var appTheme = 0
     @Environment(\.openWindow) var openWindow
 
     var body: some Commands {
@@ -134,6 +156,15 @@ struct ValentineCommands: Commands {
                 Label("About Valentine", systemImage: "info.circle")
             }
         }
+        
+        CommandGroup(replacing: .appSettings) {
+            Button(action: { openWindow(id: "settings") }) {
+                Label("Settings...", systemImage: "gearshape")
+            }
+            .keyboardShortcut(",", modifiers: [.command])
+        }
+        
+
         
         CommandGroup(replacing: .newItem) {
             Button(action: { NotificationCenter.default.post(name: NSNotification.Name("AddFile"), object: nil) }) {
@@ -160,45 +191,15 @@ struct ValentineCommands: Commands {
                 Label("Edit Lyrics", systemImage: "music.note.list")
             }
             .keyboardShortcut("e", modifiers: [.command])
-            
-            Button(action: { openWindow(id: "lyricsAppearance") }) {
-                Label("Modify Appearance", systemImage: "textformat.alt")
-            }
-            
+        }
+        
+        CommandGroup(replacing: .help) {
             Button(action: { NotificationCenter.default.post(name: NSNotification.Name("ReinstallMutagen"), object: nil) }) {
                 Label("Reinstall Mutagen", systemImage: "arrow.triangle.2.circlepath")
             }
         }
         
-        CommandGroup(after: .toolbar) {
-            Divider()
-            Menu {
-                Toggle("Glow Effect", isOn: $isGlowEffectEnabled)
-                Toggle("Neon Effect", isOn: $isNeonEffectEnabled)
-            } label: {
-                Label("Synced Lyrics Settings", systemImage: "sparkles")
-            }
-            Menu {
-                Picker("Mode", selection: $miniPlayerGlassMode) {
-                    Text("Tinted (System Theme)").tag(0)
-                    Text("Transparent (No Tint)").tag(1)
-                }
-                .pickerStyle(InlinePickerStyle())
-            } label: {
-                Label("Mini Player Background", systemImage: "macwindow")
-            }
-            Menu {
-                Picker("Theme", selection: $appTheme) {
-                    Text("Follow System").tag(0)
-                    Text("Light").tag(1)
-                    Text("Dark").tag(2)
-                }
-                .pickerStyle(InlinePickerStyle())
-            } label: {
-                Label("App Theme", systemImage: "paintpalette")
-            }
-        }
-        
+
         CommandGroup(after: .windowList) {
             Button(action: { isMiniPlayerMode.toggle() }) {
                 Label(isMiniPlayerMode ? "Switch to Full Player" : "Switch to Mini-Player", systemImage: isMiniPlayerMode ? "arrow.up.left.and.arrow.down.right" : "pip.enter")

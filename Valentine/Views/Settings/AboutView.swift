@@ -199,6 +199,7 @@ struct CreditSection: View {
             ForEach(0..<items.count, id: \.self) { index in
                 Text(items[index])
                     .font(.system(size: 13))
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

@@ -32,7 +32,7 @@ struct Track: Identifiable, Hashable {
     }
     
     mutating func loadMetadata() async {
-        let asset = AVAsset(url: url)
+        let asset = AVURLAsset(url: url)
         
         do {
             self.duration = try await asset.load(.duration).seconds

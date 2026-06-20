@@ -8,7 +8,7 @@ struct PlayerView: View {
     
     var body: some View {
         VStack(spacing: 8) {
-            Spacer(minLength: 8)
+            Spacer(minLength: 0)
             
             if engine.showLyrics {
                 LyricsView(engine: engine)
@@ -23,6 +23,8 @@ struct PlayerView: View {
                         art
                             .resizable()
                             .aspectRatio(contentMode: .fill)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .clipped()
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                     .shadow(color: .black.opacity(0.4), radius: 15, x: 0, y: 10)
@@ -40,8 +42,7 @@ struct PlayerView: View {
                     .layoutPriority(1)
             }
             
-            Spacer(minLength: 16)
-            
+            Spacer(minLength: 0)
             WaveformView(engine: engine)
                 .frame(height: 50)
                 .padding(.horizontal, 32)
@@ -70,19 +71,19 @@ struct PlayerView: View {
             .padding(.horizontal, 16)
             .layoutPriority(1)
             
-            Spacer(minLength: 8)
+            Spacer(minLength: 0)
             
             PlaybackControlsView(engine: engine)
                 .layoutPriority(2)
             
-            Spacer(minLength: 16)
+            Spacer(minLength: 0)
             
             VolumeControlView(engine: engine)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 32)
                 .layoutPriority(2)
             
-            Spacer(minLength: 16)
+            Spacer(minLength: 0)
             
             HStack(spacing: 24) {
                 Button(action: {
@@ -153,7 +154,7 @@ struct PlayerView: View {
             .padding(.bottom, 12)
             .layoutPriority(2)
             
-            Spacer(minLength: 12)
+            Spacer(minLength: 0)
         }
         .safeAreaPadding(.top, 24)
         .safeAreaPadding(.bottom, 16)

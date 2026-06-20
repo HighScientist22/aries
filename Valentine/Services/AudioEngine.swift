@@ -56,11 +56,13 @@ class AudioEngine: ObservableObject {
         setupRemoteCommandCenter()
         
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self = self else { return }
-            let newGlow = UserDefaults.standard.bool(forKey: "isGlowEffectEnabled")
-            let newNeon = UserDefaults.standard.bool(forKey: "isNeonEffectEnabled")
-            if self.isGlowEffectEnabled != newGlow { self.isGlowEffectEnabled = newGlow }
-            if self.isNeonEffectEnabled != newNeon { self.isNeonEffectEnabled = newNeon }
+            Task { @MainActor in
+                guard let self = self else { return }
+                let newGlow = UserDefaults.standard.bool(forKey: "isGlowEffectEnabled")
+                let newNeon = UserDefaults.standard.bool(forKey: "isNeonEffectEnabled")
+                if self.isGlowEffectEnabled != newGlow { self.isGlowEffectEnabled = newGlow }
+                if self.isNeonEffectEnabled != newNeon { self.isNeonEffectEnabled = newNeon }
+            }
         }
     }
     
@@ -170,7 +172,7 @@ class AudioEngine: ObservableObject {
                 if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) {
                     if isDirectory.boolValue {
                         if let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles, .skipsPackageDescendants]) {
-                            for case let fileURL as URL in enumerator {
+                            while let fileURL = enumerator.nextObject() as? URL {
                                 let ext = fileURL.pathExtension.lowercased()
                                 if supportedExtensions.contains(ext) {
                                     audioURLs.append(fileURL)
@@ -212,11 +214,13 @@ class AudioEngine: ObservableObject {
         
         let interval = CMTime(seconds: 0.1, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
         timeObserver = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            guard let self = self else { return }
-            self.currentTime = time.seconds
-            
-            if self.duration > 0 && self.currentTime >= self.duration - 0.1 {
-                self.nextTrack(isAutomatic: true)
+            Task { @MainActor in
+                guard let self = self else { return }
+                self.currentTime = time.seconds
+                
+                if self.duration > 0 && self.currentTime >= self.duration - 0.1 {
+                    self.nextTrack(isAutomatic: true)
+                }
             }
         }
         

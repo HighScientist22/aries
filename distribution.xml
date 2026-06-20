@@ -13,5 +13,5 @@
     <choice id="dev.jesuschapman.Valentine" visible="false">
         <pkg-ref id="dev.jesuschapman.Valentine"/>
     </choice>
-    <pkg-ref id="dev.jesuschapman.Valentine" version="1.0 - 001" onConclusion="none">Valentine-component.pkg</pkg-ref>
+    <pkg-ref id="dev.jesuschapman.Valentine" version="1.1 - 002" onConclusion="none">Valentine-component.pkg</pkg-ref>
 </installer-gui-script>

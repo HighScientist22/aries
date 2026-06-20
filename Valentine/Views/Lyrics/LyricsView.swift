@@ -59,14 +59,14 @@ struct LyricsView: View {
                                 endPoint: .bottom
                             )
                         )
-                        .onChange(of: activeLineIndex) { newIndex in
+                        .onChange(of: activeLineIndex) { _, newIndex in
                             if let index = newIndex {
                                 withAnimation(.spring(response: 0.6, dampingFraction: 0.8, blendDuration: 0)) {
                                     proxy.scrollTo(index, anchor: .center)
                                 }
                             }
                         }
-                        .onChange(of: geo.size) { _ in
+                        .onChange(of: geo.size) { _, _ in
                             if let index = activeLineIndex {
                                 proxy.scrollTo(index, anchor: .center)
                             }

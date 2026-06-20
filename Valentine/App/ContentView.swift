@@ -14,55 +14,48 @@ struct ContentView: View {
     @State private var isTargeted = false
     @State private var isPlaylistVisible = true
     @State private var wasWide = true
+    @State private var windowSize: CGSize? = nil
     
     @AppStorage("lastNormalWidth") private var lastNormalWidth: Double = 900
     @AppStorage("lastNormalHeight") private var lastNormalHeight: Double = 600
     
     var body: some View {
         GeometryReader { geometry in
-            let isWide = geometry.size.width > 600
+            let currentWidth = geometry.size.width
+            let isWide = currentWidth > 600
             
             Group {
                 if engine.queue.isEmpty {
                     emptyStateView
                 } else {
                     HStack(spacing: 0) {
-                        if isWide {
-                            if isPlaylistVisible {
-                                PlaylistView(engine: engine)
-                                    .frame(width: 280)
-                                    .background(Color.black.opacity(0.2))
-                                    .transition(.move(edge: .leading))
-                            }
-                            
+                        if isPlaylistVisible {
+                            PlaylistView(engine: engine)
+                                .frame(minWidth: isWide ? 280 : nil,
+                                       idealWidth: isWide ? 280 : nil,
+                                       maxWidth: isWide ? 280 : .infinity,
+                                       maxHeight: .infinity)
+                                .background(Color.black.opacity(0.2))
+                                .transition(.asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .leading)))
+                        }
+                        
+                        if isWide || !isPlaylistVisible {
                             PlayerView(
                                 engine: engine,
-                                togglePlaylist: {},
+                                togglePlaylist: {
+                                    withAnimation(.spring()) {
+                                        isPlaylistVisible.toggle()
+                                    }
+                                },
                                 isPlaylistVisible: isPlaylistVisible,
-                                showToggle: false
+                                showToggle: !isWide
                             )
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        } else {
-                            if isPlaylistVisible {
-                                PlaylistView(engine: engine)
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                    .background(Color.black.opacity(0.2))
-                                    .transition(.asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .leading)))
-                            } else {
-                                PlayerView(
-                                    engine: engine,
-                                    togglePlaylist: {},
-                                    isPlaylistVisible: isPlaylistVisible,
-                                    showToggle: false
-                                )
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)))
-                            }
+                            .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)))
                         }
                     }
                 }
             }
-            .frame(width: geometry.size.width, height: geometry.size.height)
             .background(backgroundLayer)
             .toolbar {
                 ToolbarItem(placement: .navigation) {
@@ -76,7 +69,11 @@ struct ContentView: View {
                 }
             }
             .toolbarBackground(.hidden, for: .windowToolbar)
-            .onChange(of: geometry.size) { newSize in
+            .onDrop(of: ["public.file-url"], isTargeted: $isTargeted) { providers in
+                handleDrop(providers: providers)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onChange(of: geometry.size) { _, newSize in
                 lastNormalWidth = Double(newSize.width)
                 lastNormalHeight = Double(newSize.height)
                 
@@ -91,10 +88,7 @@ struct ContentView: View {
                 }
             }
         }
-        .onDrop(of: ["public.file-url"], isTargeted: $isTargeted) { providers in
-            handleDrop(providers: providers)
-        }
-        .frame(minWidth: 400, maxWidth: .infinity, minHeight: 540, maxHeight: .infinity)
+        .frame(minWidth: 400, minHeight: 540)
     }
     
     private var backgroundLayer: some View {
@@ -105,17 +99,24 @@ struct ContentView: View {
                 art
                     .resizable()
                     .aspectRatio(contentMode: .fill)
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                    .clipped()
                     .blur(radius: 80)
                     .opacity(0.7)
                     .ignoresSafeArea()
                     .animation(.easeInOut(duration: 1.5), value: engine.currentTrack?.id)
             } else {
-                LinearGradient(
-                    colors: [Color(red: 0.2, green: 0.1, blue: 0.15), Color(red: 0.1, green: 0.1, blue: 0.1)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
+                if colorScheme == .dark {
+                    LinearGradient(
+                        colors: [Color(red: 0.2, green: 0.1, blue: 0.15), Color(red: 0.1, green: 0.1, blue: 0.1)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    .ignoresSafeArea()
+                } else {
+                    Color(NSColor.windowBackgroundColor)
+                        .ignoresSafeArea()
+                }
             }
         }
     }
@@ -230,5 +231,13 @@ struct HoverZoomButton: View {
                 }
         }
         .buttonStyle(.plain)
+    }
+}
+
+
+struct WindowSizePreferenceKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        value = nextValue()
     }
 }
