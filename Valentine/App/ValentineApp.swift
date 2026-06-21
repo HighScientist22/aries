@@ -16,6 +16,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct ValentineApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @AppStorage("appTheme") private var appTheme = 0
+    
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -35,6 +37,7 @@ struct ValentineApp: App {
         
         Window("Settings", id: "settings") {
             SettingsView()
+                .preferredColorScheme(appTheme == 1 ? .light : (appTheme == 2 ? .dark : nil))
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
@@ -59,6 +62,7 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut, value: isMiniPlayerMode)
+        .preferredColorScheme(appTheme == 1 ? .light : (appTheme == 2 ? .dark : nil))
         .onAppear {
             updateTheme(theme: appTheme)
             configureWindow(forMiniPlayer: isMiniPlayerMode)
@@ -78,11 +82,11 @@ struct RootView: View {
                 engine.showLyricsEditor = true
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("AddFile"))) { _ in engine.showAddFileDialog() }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("AddFolder"))) { _ in engine.showAddFolderDialog() }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ClearPlaylist"))) { _ in engine.clearPlaylist() }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("EditLyrics"))) { _ in engine.checkAndShowLyricsEditor() }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReinstallMutagen"))) { _ in engine.showMutagenInstaller = true }
+        .onReceive(NotificationCenter.default.publisher(for: .addFile)) { _ in engine.showAddFileDialog() }
+        .onReceive(NotificationCenter.default.publisher(for: .addFolder)) { _ in engine.showAddFolderDialog() }
+        .onReceive(NotificationCenter.default.publisher(for: .clearPlaylist)) { _ in engine.clearPlaylist() }
+        .onReceive(NotificationCenter.default.publisher(for: .editLyrics)) { _ in engine.checkAndShowLyricsEditor() }
+        .onReceive(NotificationCenter.default.publisher(for: .reinstallMutagen)) { _ in engine.showMutagenInstaller = true }
     }
     
     private func updateTheme(theme: Int) {
@@ -167,19 +171,19 @@ struct ValentineCommands: Commands {
 
         
         CommandGroup(replacing: .newItem) {
-            Button(action: { NotificationCenter.default.post(name: NSNotification.Name("AddFile"), object: nil) }) {
+            Button(action: { NotificationCenter.default.post(name: .addFile, object: nil) }) {
                 Label("Add File...", systemImage: "doc.badge.plus")
             }
             .keyboardShortcut("o", modifiers: [.command])
             
-            Button(action: { NotificationCenter.default.post(name: NSNotification.Name("AddFolder"), object: nil) }) {
+            Button(action: { NotificationCenter.default.post(name: .addFolder, object: nil) }) {
                 Label("Add Folder...", systemImage: "folder.badge.plus")
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
             
             Divider()
             
-            Button(action: { NotificationCenter.default.post(name: NSNotification.Name("ClearPlaylist"), object: nil) }) {
+            Button(action: { NotificationCenter.default.post(name: .clearPlaylist, object: nil) }) {
                 Label("Clear Playlist", systemImage: "trash")
             }
             .keyboardShortcut(.delete, modifiers: [.command])
@@ -187,14 +191,14 @@ struct ValentineCommands: Commands {
         
         CommandGroup(after: .textEditing) {
             Divider()
-            Button(action: { NotificationCenter.default.post(name: NSNotification.Name("EditLyrics"), object: nil) }) {
+            Button(action: { NotificationCenter.default.post(name: .editLyrics, object: nil) }) {
                 Label("Edit Lyrics", systemImage: "music.note.list")
             }
             .keyboardShortcut("e", modifiers: [.command])
         }
         
         CommandGroup(replacing: .help) {
-            Button(action: { NotificationCenter.default.post(name: NSNotification.Name("ReinstallMutagen"), object: nil) }) {
+            Button(action: { NotificationCenter.default.post(name: .reinstallMutagen, object: nil) }) {
                 Label("Reinstall Mutagen", systemImage: "arrow.triangle.2.circlepath")
             }
         }

@@ -13,15 +13,16 @@ struct LiquidGlassModifier: ViewModifier {
 }
 
 extension View {
-    func liquidGlass(cornerRadius: CGFloat = 16) -> some View {
+    func liquidGlass(cornerRadius: CGFloat = DesignConstants.CornerRadius.large) -> some View {
         self.modifier(LiquidGlassModifier(cornerRadius: cornerRadius))
     }
 }
 
 struct LiquidGlassButtonStyle: ButtonStyle {
-    var cornerRadius: CGFloat = 16
+    var cornerRadius: CGFloat = DesignConstants.CornerRadius.large
     var isActive: Bool = false
     
+    @Environment(\.colorScheme) var colorScheme
     @State private var isHovered = false
     
     func makeBody(configuration: Configuration) -> some View {

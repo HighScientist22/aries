@@ -44,6 +44,7 @@ Valentine is made possible by these incredible open-source projects:
 - **[LRCLib](https://lrclib.net/)**: The open-source lyrics API used to seamlessly search and fetch precise, time-synchronized `.lrc` lyrics.
 - **[Mutagen](https://mutagen.readthedocs.io/)**: A highly robust Python multimedia tagging library used by our `MutagenInstallerService` to inject the lyrics securely into the ID3 metadata.
 - **[AVFoundation](https://developer.apple.com/av-foundation/)**: Apple's native framework driving the `AudioEngine`, providing flawless audio playback and waveform data.
+- **[Last.fm API](https://www.last.fm/api)**: Used to scrobble tracks in your Last.fm account
 
 ---
 
@@ -77,6 +78,7 @@ To build Valentine from source, you need a Mac running **macOS Tahoe 26** or new
 3. **Configure the Project:**
    - Go to the project settings and ensure you have selected your Apple Developer ID team.
    - Valentine uses Xcode 16's Synchronized Folders, so everything is ready to go out of the box.
+   - **Note:** You will need to provide your own [Last.fm API Key](https://www.last.fm/api/account/create) in `Secrets.swift` for use Last.fm api, the compilations released by me include my personal api key.
 4. **Build & Run:**
    - Select your Mac as the destination.
    - Press `Cmd + R` to compile and launch. 

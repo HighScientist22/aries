@@ -56,15 +56,14 @@ class LastFMService: ObservableObject {
         }
         allParams["format"] = "json"
         
-        var components = URLComponents(string: "https://ws.audioscrobbler.com/2.0/")!
-        components.queryItems = allParams.map { URLQueryItem(name: $0.key, value: $0.value) }
-        
-        guard let url = components.url else {
-            throw URLError(.badURL)
-        }
-        
+        let url = URL(string: "https://ws.audioscrobbler.com/2.0/")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST" // Last.fm recommends POST for scrobbling and now playing
+        
+        var components = URLComponents()
+        components.queryItems = allParams.map { URLQueryItem(name: $0.key, value: $0.value) }
+        request.httpBody = components.query?.data(using: .utf8)
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         
         let (data, response) = try await URLSession.shared.data(for: request)
         

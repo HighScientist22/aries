@@ -10,37 +10,42 @@ struct PlayerView: View {
         VStack(spacing: 8) {
             Spacer(minLength: 0)
             
-            if engine.showLyrics {
-                LyricsView(engine: engine)
-                    .frame(maxWidth: .infinity, minHeight: 160, maxHeight: 325)
-                    .layoutPriority(1)
-            } else if let art = engine.currentTrack?.albumArt {
-                Rectangle()
-                    .fill(Color.clear)
-                    .frame(minWidth: 160, maxWidth: 325, minHeight: 160, maxHeight: 325)
-                    .aspectRatio(1, contentMode: .fit)
-                    .overlay(
-                        art
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .clipped()
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .shadow(color: .black.opacity(0.4), radius: 15, x: 0, y: 10)
-                    .layoutPriority(1)
-            } else {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(.ultraThinMaterial)
-                    .frame(minWidth: 160, maxWidth: 325, minHeight: 160, maxHeight: 325)
-                    .aspectRatio(1, contentMode: .fit)
-                    .overlay(
-                        Image(systemName: "music.note")
-                            .font(.system(size: 80))
-                            .foregroundColor(.white.opacity(0.3))
-                    )
-                    .layoutPriority(1)
+            Group {
+                if engine.showLyrics {
+                    LyricsView(engine: engine)
+                        .frame(maxWidth: .infinity, minHeight: 160, maxHeight: 325)
+                        .layoutPriority(1)
+                } else if let art = engine.currentTrack?.albumArt {
+                    Rectangle()
+                        .fill(Color.clear)
+                        .frame(minWidth: 160, maxWidth: 325, minHeight: 160, maxHeight: 325)
+                        .aspectRatio(1, contentMode: .fit)
+                        .overlay(
+                            art
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .clipped()
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .shadow(color: .black.opacity(0.4), radius: 15, x: 0, y: 10)
+                        .layoutPriority(1)
+                } else {
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(.ultraThinMaterial)
+                        .frame(minWidth: 160, maxWidth: 325, minHeight: 160, maxHeight: 325)
+                        .aspectRatio(1, contentMode: .fit)
+                        .overlay(
+                            Image(systemName: "music.note")
+                                .font(.system(size: 80))
+                                .foregroundColor(.primary.opacity(0.3))
+                        )
+                        .layoutPriority(1)
+                }
             }
+            .id(engine.currentTrack?.id)
+            .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            .animation(.easeInOut(duration: 0.4), value: engine.currentTrack?.id)
             
             Spacer(minLength: 0)
             WaveformView(engine: engine)
@@ -98,6 +103,7 @@ struct PlayerView: View {
                 }
                 .contentTransition(.symbolEffect(.replace))
                 .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 16, isActive: engine.shuffleMode))
+                .accessibilityLabel(engine.shuffleMode ? "Shuffle On" : "Shuffle Off")
                 
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.4)) {
@@ -125,6 +131,7 @@ struct PlayerView: View {
                 }
                 .contentTransition(.symbolEffect(.replace))
                 .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 16, isActive: engine.repeatMode != .off))
+                .accessibilityLabel("Repeat \(engine.repeatMode == .off ? "Off" : (engine.repeatMode == .one ? "One" : "All"))")
                 
                 Spacer()
                 
@@ -139,6 +146,7 @@ struct PlayerView: View {
                         .frame(width: 32, height: 32)
                 }
                 .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 16, isActive: engine.showLyrics))
+                .accessibilityLabel(engine.showLyrics ? "Hide Lyrics" : "Show Lyrics")
                 
                 Button(action: {
                     engine.checkAndShowLyricsEditor()
@@ -149,6 +157,7 @@ struct PlayerView: View {
                         .frame(width: 32, height: 32)
                 }
                 .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 16, isActive: false))
+                .accessibilityLabel("Edit Lyrics")
             }
             .padding(.horizontal, 40)
             .padding(.bottom, 12)

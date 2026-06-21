@@ -54,9 +54,10 @@ struct PlaylistView: View {
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Capsule().fill(.ultraThinMaterial))
-                    .overlay(
-                        Capsule().strokeBorder(Color.primary.opacity(0.1), lineWidth: 1)
+                    .background(
+                        RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
+                            .fill(.clear)
+                            .liquidGlass(cornerRadius: DesignConstants.CornerRadius.medium)
                     )
                     .padding(.trailing, 8)
                 }
@@ -75,7 +76,9 @@ struct PlaylistView: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
-                .liquidGlass(cornerRadius: 14)
+                .liquidGlass(cornerRadius: DesignConstants.CornerRadius.medium)
+                .accessibilityLabel(isSearchVisible ? "Close Search" : "Search Playlist")
+                .keyboardShortcut("f", modifiers: .command)
                 .padding(.trailing, 4)
                 
                 Button(action: {
@@ -92,7 +95,8 @@ struct PlaylistView: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
-                .liquidGlass(cornerRadius: 14)
+                .liquidGlass(cornerRadius: DesignConstants.CornerRadius.medium)
+                .accessibilityLabel(isSelectionMode ? "Exit Selection Mode" : "Select Tracks")
             }
             .padding()
             
@@ -119,94 +123,83 @@ struct PlaylistView: View {
                     
                 }
                 .buttonStyle(.plain)
+                .keyboardShortcut(.delete, modifiers: .command)
                 .padding(.horizontal)
                 .padding(.bottom, 8)
             }
             
-            ScrollView {
-                LazyVStack(spacing: 4) {
-                    ForEach(filteredTracks, id: \.1.id) { index, track in
-                        QueueRowView(
-                            track: track,
-                            isPlaying: engine.currentTrackIndex == index,
-                            isSelectionMode: isSelectionMode,
-                            isSelected: selectedTracks.contains(track.id)
-                        )
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if isSelectionMode {
-                                if selectedTracks.contains(track.id) {
-                                    selectedTracks.remove(track.id)
+            if filteredTracks.isEmpty {
+                VStack(spacing: 16) {
+                    Spacer()
+                    Image(systemName: isSearchVisible ? "magnifyingglass" : "music.note.list")
+                        .font(.system(size: 48))
+                        .foregroundColor(.secondary.opacity(0.5))
+                    Text(isSearchVisible ? "No results found" : "Drag & Drop Audio Files Here")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 4) {
+                        ForEach(filteredTracks, id: \.1.id) { index, track in
+                            QueueRowView(
+                                track: track,
+                                isPlaying: engine.currentTrackIndex == index,
+                                isSelectionMode: isSelectionMode,
+                                isSelected: selectedTracks.contains(track.id)
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if isSelectionMode {
+                                    if selectedTracks.contains(track.id) {
+                                        selectedTracks.remove(track.id)
+                                    } else {
+                                        selectedTracks.insert(track.id)
+                                    }
                                 } else {
-                                    selectedTracks.insert(track.id)
+                                    engine.playTrack(at: index)
                                 }
-                            } else {
-                                engine.playTrack(at: index)
+                            }
+                            .contextMenu {
+                                Button(action: {
+                                    if let currentIndex = engine.currentTrackIndex {
+                                        let trackIndexInQueue = engine.queue.firstIndex(where: { $0.id == track.id })
+                                        if let tIndex = trackIndexInQueue, tIndex != currentIndex {
+                                            let t = engine.queue.remove(at: tIndex)
+                                            let newCurrentIndex = currentIndex > tIndex ? currentIndex - 1 : currentIndex
+                                            engine.currentTrackIndex = newCurrentIndex
+                                            let insertIndex = min(newCurrentIndex + 1, engine.queue.count)
+                                            engine.queue.insert(t, at: insertIndex)
+                                        }
+                                    }
+                                }) {
+                                    Label("Play Next", systemImage: "text.insert")
+                                }
+                                
+                                Button(action: {
+                                    NSWorkspace.shared.activateFileViewerSelecting([track.url])
+                                }) {
+                                    Label("Show in Finder", systemImage: "folder")
+                                }
+                                
+                                Divider()
+                                
+                                Button(role: .destructive, action: {
+                                    engine.removeTracks(withIds: [track.id])
+                                }) {
+                                    Label("Remove", systemImage: "trash")
+                                }
+                                .tint(.red)
+                                .foregroundColor(.red)
                             }
                         }
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 16)
                 }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 16)
             }
         }
-    }
-}
-
-struct QueueRowView: View {
-    let track: Track
-    let isPlaying: Bool
-    let isSelectionMode: Bool
-    let isSelected: Bool
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            if isSelectionMode {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundColor(isSelected ? .accentColor : .secondary)
-            }
-            
-            if let albumArt = track.albumArt {
-                albumArt
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 40, height: 40)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-            } else {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.white.opacity(0.1))
-                    .frame(width: 40, height: 40)
-                    .overlay(
-                        Image(systemName: "music.note")
-                            .foregroundColor(.white.opacity(0.3))
-                    )
-            }
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Text(track.title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundColor(.primary)
-                Text(track.artist)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            
-            Spacer()
-            
-            if isPlaying && !isSelectionMode {
-                Image(systemName: "speaker.wave.2.fill")
-                    .foregroundColor(.primary)
-                    .font(.system(size: 12))
-            }
-        }
-        .padding(8)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(isPlaying && !isSelectionMode ? Color.white.opacity(0.15) : (isSelected ? Color.blue.opacity(0.2) : Color.clear))
-        )
-        .animation(.easeInOut(duration: 0.2), value: isPlaying)
-        .animation(.easeInOut(duration: 0.2), value: isSelectionMode)
-        .animation(.easeInOut(duration: 0.2), value: isSelected)
     }
 }

@@ -82,11 +82,11 @@ struct LyricsView: View {
                 VStack(spacing: 16) {
                     Image(systemName: "music.mic")
                         .font(.system(size: 64))
-                        .foregroundColor(.white.opacity(0.3))
+                        .foregroundColor(.primary.opacity(0.3))
                     Text("No Lyrics Available")
                         .font(.title3)
                         .fontWeight(.medium)
-                        .foregroundColor(.white.opacity(0.5))
+                        .foregroundColor(.primary.opacity(0.5))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

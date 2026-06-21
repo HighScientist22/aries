@@ -14,6 +14,8 @@ struct PlaybackControlsView: View {
                     .frame(width: 43, height: 43)
             }
             .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 21.5, isActive: false))
+            .accessibilityLabel("Previous Track")
+            .keyboardShortcut(.leftArrow, modifiers: .command)
             
             Button(action: {
                 engine.togglePlayback()
@@ -24,6 +26,8 @@ struct PlaybackControlsView: View {
                     .frame(width: 58, height: 58)
             }
             .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 29, isActive: engine.isPlaying))
+            .accessibilityLabel(engine.isPlaying ? "Pause" : "Play")
+            .keyboardShortcut(.space, modifiers: [])
             
             Button(action: {
                 engine.nextTrack()
@@ -34,6 +38,8 @@ struct PlaybackControlsView: View {
                     .frame(width: 43, height: 43)
             }
             .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 21.5, isActive: false))
+            .accessibilityLabel("Next Track")
+            .keyboardShortcut(.rightArrow, modifiers: .command)
         }
     }
 }

@@ -64,7 +64,8 @@ struct AboutView: View {
                         CreditSection(title: "SPECIAL THANKS", items: [
                             "The Amberol Team",
                             "Mutagen",
-                            "LRCLIB"
+                            "LRCLIB",
+                            "Last.fm"
                         ])
                         
                         CreditSection(title: "LICENSE", items: [

@@ -43,6 +43,8 @@ class AudioEngine: ObservableObject {
     
     private var player: AVPlayer?
     private var timeObserver: Any?
+    private var endObserver: NSObjectProtocol?
+    private var userDefaultsObserver: NSObjectProtocol?
     
     private var hasScrobbledCurrentTrack = false
     private var currentTrackStartTime: Int = 0
@@ -58,7 +60,7 @@ class AudioEngine: ObservableObject {
         setupAudioSession()
         setupRemoteCommandCenter()
         
-        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+        self.userDefaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self = self else { return }
                 let newGlow = UserDefaults.standard.bool(forKey: "isGlowEffectEnabled")
@@ -67,6 +69,26 @@ class AudioEngine: ObservableObject {
                 if self.isNeonEffectEnabled != newNeon { self.isNeonEffectEnabled = newNeon }
             }
         }
+    }
+    
+    deinit {
+        if let observer = timeObserver {
+            player?.removeTimeObserver(observer)
+        }
+        if let endObserver = endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+        }
+        if let defaultsObserver = userDefaultsObserver {
+            NotificationCenter.default.removeObserver(defaultsObserver)
+        }
+        
+        let commandCenter = MPRemoteCommandCenter.shared()
+        commandCenter.playCommand.removeTarget(nil)
+        commandCenter.pauseCommand.removeTarget(nil)
+        commandCenter.togglePlayPauseCommand.removeTarget(nil)
+        commandCenter.nextTrackCommand.removeTarget(nil)
+        commandCenter.previousTrackCommand.removeTarget(nil)
+        commandCenter.changePlaybackPositionCommand.removeTarget(nil)
     }
     
     private func setupAudioSession() {
@@ -208,8 +230,19 @@ class AudioEngine: ObservableObject {
             player?.removeTimeObserver(observer)
             timeObserver = nil
         }
+        if let endObserver = endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+            self.endObserver = nil
+        }
         
         let playerItem = AVPlayerItem(url: track.url)
+        
+        endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: playerItem, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                self?.nextTrack(isAutomatic: true)
+            }
+        }
+        
         player = AVPlayer(playerItem: playerItem)
         player?.volume = volume
         currentTrackIndex = index
@@ -231,10 +264,6 @@ class AudioEngine: ObservableObject {
                         self.hasScrobbledCurrentTrack = true
                         LastFMService.shared.scrobble(track: currentTrack.title, artist: currentTrack.artist, album: currentTrack.album, timestamp: self.currentTrackStartTime)
                     }
-                }
-                
-                if self.duration > 0 && self.currentTime >= self.duration - 0.1 {
-                    self.nextTrack(isAutomatic: true)
                 }
             }
         }

@@ -133,7 +133,7 @@ struct MiniPlayerView: View {
             if showMiniLyrics {
                 VStack(spacing: 4) {
                     Divider()
-                        .background(Color.white.opacity(0.1))
+                        .background(Color.primary.opacity(0.1))
                         .padding(.horizontal, 20)
                     
                     VStack(spacing: 8) {
@@ -185,7 +185,7 @@ struct MiniPlayerView: View {
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                    .stroke(Color.primary.opacity(0.15), lineWidth: 1)
                     .blendMode(.overlay)
             )
             .ignoresSafeArea()

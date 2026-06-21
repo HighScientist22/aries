@@ -186,18 +186,34 @@ struct ContentView: View {
     }
     
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        let group = DispatchGroup()
+        let queue = DispatchQueue(label: "dropQueue")
         var urls: [URL] = []
+        
         for provider in providers {
-            provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { (urlData, error) in
+            group.enter()
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { (urlData, error) in
+                defer { group.leave() }
                 if let urlData = urlData as? Data,
                    let urlString = String(data: urlData, encoding: .utf8),
                    let url = URL(string: urlString) {
-                    urls.append(url)
+                    queue.async {
+                        urls.append(url)
+                    }
+                } else if let url = urlData as? URL {
+                    queue.async {
+                        urls.append(url)
+                    }
                 }
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            engine.addTracks(urls)
+        
+        group.notify(queue: .main) {
+            queue.sync {
+                if !urls.isEmpty {
+                    engine.addTracks(urls)
+                }
+            }
         }
         return true
     }
