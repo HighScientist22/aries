@@ -3,6 +3,7 @@ import SwiftUI
 enum SettingsTab: String, CaseIterable, Identifiable {
     case general = "General"
     case lyrics = "Lyrics"
+    case integrations = "Integrations"
     
     var id: String { self.rawValue }
     
@@ -10,6 +11,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "gear"
         case .lyrics: return "textformat.alt"
+        case .integrations: return "network"
         }
     }
     
@@ -17,6 +19,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .general: return .gray
         case .lyrics: return .blue
+        case .integrations: return .red
         }
     }
 }
@@ -52,6 +55,9 @@ struct SettingsView: View {
             case .lyrics:
                 LyricsAppearanceView()
                     .navigationTitle(LocalizedStringKey(SettingsTab.lyrics.rawValue))
+            case .integrations:
+                IntegrationsSettingsView()
+                    .navigationTitle(LocalizedStringKey(SettingsTab.integrations.rawValue))
             case .none:
                 Text("Select a setting")
             }

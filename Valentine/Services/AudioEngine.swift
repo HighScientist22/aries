@@ -44,6 +44,9 @@ class AudioEngine: ObservableObject {
     private var player: AVPlayer?
     private var timeObserver: Any?
     
+    private var hasScrobbledCurrentTrack = false
+    private var currentTrackStartTime: Int = 0
+    
     var currentTrack: Track? {
         guard let index = currentTrackIndex, queue.indices.contains(index) else { return nil }
         return queue[index]
@@ -212,11 +215,23 @@ class AudioEngine: ObservableObject {
         currentTrackIndex = index
         duration = track.duration
         
+        hasScrobbledCurrentTrack = false
+        currentTrackStartTime = Int(Date().timeIntervalSince1970)
+        LastFMService.shared.updateNowPlaying(track: track.title, artist: track.artist, album: track.album, duration: Int(track.duration))
+        
         let interval = CMTime(seconds: 0.1, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
         timeObserver = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor in
                 guard let self = self else { return }
                 self.currentTime = time.seconds
+                
+                if let currentTrack = self.currentTrack, self.duration > 30 && !self.hasScrobbledCurrentTrack {
+                    let scrobblePoint = min(self.duration / 2.0, 240.0) // 50% or 4 minutes
+                    if self.currentTime >= scrobblePoint {
+                        self.hasScrobbledCurrentTrack = true
+                        LastFMService.shared.scrobble(track: currentTrack.title, artist: currentTrack.artist, album: currentTrack.album, timestamp: self.currentTrackStartTime)
+                    }
+                }
                 
                 if self.duration > 0 && self.currentTime >= self.duration - 0.1 {
                     self.nextTrack(isAutomatic: true)
