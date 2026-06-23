@@ -18,6 +18,7 @@ struct ContentView: View {
     @State private var showHome = false
     @State private var wasWide = true
     @State private var windowSize: CGSize? = nil
+    @State private var persistTask: Task<Void, Never>? = nil
 
     @AppStorage("lastNormalWidth") private var lastNormalWidth: Double = 900
     @AppStorage("lastNormalHeight") private var lastNormalHeight: Double = 600
@@ -90,22 +91,28 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onChange(of: geometry.size) { _, newSize in
-                lastNormalWidth = Double(newSize.width)
-                lastNormalHeight = Double(newSize.height)
-
                 let newIsWide = newSize.width >= 600
                 if newIsWide != wasWide {
                     wasWide = newIsWide
-                    if !newIsWide {
-                        isPlaylistVisible = false
-                    } else {
-                        isPlaylistVisible = true
+                    withAnimation(.spring()) {
+                        isPlaylistVisible = newIsWide
                     }
                 }
+                persistWindowSize(newSize)
             }
         }
         .frame(minWidth: 400, minHeight: 540)
         .tint(theme.accent)
+    }
+
+    private func persistWindowSize(_ size: CGSize) {
+        // Debounce writes to UserDefaults during live resize
+        persistTask?.cancel()
+        persistTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            lastNormalWidth = Double(size.width)
+            lastNormalHeight = Double(size.height)
+        }
     }
 
     private var backgroundLayer: some View {
@@ -114,7 +121,7 @@ struct ContentView: View {
                 .ignoresSafeArea()
                 .animation(.easeInOut(duration: 0.8), value: theme.background)
 
-            if let art = engine.currentTrack?.albumArt {
+            if let art = backgroundArtwork {
                 art
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -123,9 +130,30 @@ struct ContentView: View {
                     .blur(radius: 90)
                     .opacity(0.55)
                     .ignoresSafeArea()
-                    .animation(.easeInOut(duration: 1.5), value: engine.currentTrack?.id)
+                    .animation(.easeInOut(duration: 1.5), value: backgroundArtKey)
             }
         }
+    }
+
+    private var backgroundArtKey: String {
+        if let id = engine.currentTrack?.id { return id.uuidString }
+        if let hero = library.recentlyPlayed.first ?? library.tracks.first {
+            return "home-\(hero.id.uuidString)"
+        }
+        return "none"
+    }
+
+    private var backgroundArtwork: Image? {
+        if let art = engine.currentTrack?.albumArt {
+            return art
+        }
+        if showHome || engine.queue.isEmpty,
+           let hero = library.recentlyPlayed.first ?? library.tracks.first,
+           let url = library.artworkURL(for: hero),
+           let nsImage = NSImage(contentsOf: url) {
+            return Image(nsImage: nsImage)
+        }
+        return nil
     }
 
     private var emptyStateView: some View {
@@ -216,11 +244,9 @@ struct ContentView: View {
         }
 
         group.notify(queue: .main) {
-            queue.sync {
-                if !urls.isEmpty {
-                    engine.addTracks(urls)
-                    library.importFiles(urls)
-                }
+            if !urls.isEmpty {
+                engine.addTracks(urls)
+                library.importFiles(urls)
             }
         }
         return true
