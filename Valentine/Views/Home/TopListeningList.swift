@@ -37,6 +37,17 @@ struct TopListeningList: View {
                 }
             }
         }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.ultraThinMaterial.opacity(0.5))
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(.white.opacity(0.1), lineWidth: 1)
+        )
     }
 
     @ViewBuilder

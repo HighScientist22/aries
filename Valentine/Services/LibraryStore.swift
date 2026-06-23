@@ -250,6 +250,17 @@ class LibraryStore: ObservableObject {
         }
     }
 
+    var totalPlayCount: Int {
+        listeningStats.playHistory.count
+    }
+
+    var totalListenSeconds: TimeInterval {
+        listeningStats.playHistory.reduce(0) { total, entry in
+            let duration = tracks.first(where: { $0.id == entry.trackID })?.duration ?? 0
+            return total + duration
+        }
+    }
+
     private func rankedListeningStats(
         playCounts: [String: Int],
         listenSeconds: [String: Double]

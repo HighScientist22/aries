@@ -10,6 +10,7 @@ struct GenreListeningChart: View {
     let accent: Color
     var maxBars: Int = 8
     var onGenreSelected: ((String) -> Void)? = nil
+    var onViewAll: (() -> Void)? = nil
 
     private var topStats: [GenreListeningStat] {
         Array(stats.prefix(maxBars))
@@ -30,7 +31,12 @@ struct GenreListeningChart: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                if !stats.isEmpty {
+                if let onViewAll, !stats.isEmpty {
+                    Button("See All", action: onViewAll)
+                        .buttonStyle(.plain)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(accent)
+                } else if !stats.isEmpty {
                     Text("\(stats.count) genres")
                         .font(.caption)
                         .foregroundStyle(.secondary)

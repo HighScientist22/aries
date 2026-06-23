@@ -8,8 +8,12 @@ import SwiftUI
 struct ListeningTimelineView: View {
     let days: [ListeningTimelineDay]
     let accent: Color
-    var onSelectTrack: ((LibraryTrack) -> Void)? = nil
+    let artworkURL: (LibraryTrack) -> URL?
+    var onPlayTrack: ((LibraryTrack) -> Void)? = nil
+    var onOpenAlbum: ((LibraryTrack) -> Void)? = nil
     var maxDays: Int = 14
+
+    @State private var expandedDays: Set<String> = []
 
     private var visibleDays: [ListeningTimelineDay] {
         Array(days.prefix(maxDays))
@@ -45,44 +49,86 @@ struct ListeningTimelineView: View {
     }
 
     private func daySection(_ day: ListeningTimelineDay) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(dayLabel(for: day.date))
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
+        let isExpanded = expandedDays.contains(day.id)
+        let visibleItems = isExpanded ? day.items : Array(day.items.prefix(12))
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(dayLabel(for: day.date))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                Spacer()
+                Text("\(day.items.count) plays")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
 
             VStack(spacing: 6) {
-                ForEach(day.items.prefix(12)) { item in
-                    Button {
-                        onSelectTrack?(item.track)
-                    } label: {
-                        HStack(spacing: 12) {
-                            Text(timeLabel(item.playedAt))
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.tertiary)
-                                .frame(width: 52, alignment: .leading)
+                ForEach(visibleItems) { item in
+                    timelineRow(item)
+                }
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(item.track.title)
-                                    .font(.subheadline.weight(.medium))
-                                    .lineLimit(1)
-                                Text(item.track.artist)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-
-                            Spacer()
-
-                            Text(item.track.duration.formatTime())
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
+                if day.items.count > 12 {
+                    Button(isExpanded ? "Show Less" : "Show \(day.items.count - 12) More") {
+                        if isExpanded {
+                            expandedDays.remove(day.id)
+                        } else {
+                            expandedDays.insert(day.id)
                         }
-                        .padding(.vertical, 4)
-                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(accent)
+                    .padding(.top, 2)
                 }
+            }
+        }
+    }
+
+    private func timelineRow(_ item: ListeningTimelineItem) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                onPlayTrack?(item.track)
+            } label: {
+                HStack(spacing: 12) {
+                    CachedArtwork(url: artworkURL(item.track), size: 36, rounded: false)
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+
+                    Text(timeLabel(item.playedAt))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 52, alignment: .leading)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.track.title)
+                            .font(.subheadline.weight(.medium))
+                            .lineLimit(1)
+                        Text(item.track.artist)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer()
+
+                    Text(item.track.duration.formatTime())
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if let onOpenAlbum {
+                Button(action: { onOpenAlbum(item.track) }) {
+                    Image(systemName: "square.stack")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Open Album")
             }
         }
     }

@@ -103,13 +103,54 @@ struct LibrarySearchView: View {
     }
 
     private func searchTrackRow(_ track: LibraryTrack) -> some View {
-        LibraryTrackRow(
-            track: track,
-            artworkURL: library.artworkURL(for: track),
-            accent: theme.accent
-        ) {
-            engine.playFromLibrary([track], startIndex: 0, store: library)
-            dismiss()
+        HStack(spacing: 12) {
+            Button {
+                if let album = library.albumGroup(for: track) {
+                    navigation.openAlbum(album)
+                }
+                dismiss()
+            } label: {
+                HStack(spacing: 12) {
+                    CachedArtwork(url: library.artworkURL(for: track), size: 44, rounded: false)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(track.title)
+                            .font(.subheadline.weight(.medium))
+                        Text(track.artist)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                engine.playFromLibrary([track], startIndex: 0, store: library)
+                dismiss()
+            } label: {
+                Image(systemName: "play.fill")
+                    .font(.caption)
+                    .foregroundStyle(theme.accent)
+            }
+            .buttonStyle(.plain)
+            .help("Play Now")
+
+            Button {
+                if let album = library.albumGroup(for: track) {
+                    engine.playFromLibrary(album.tracks, startIndex: 0, store: library, shuffleTracks: true)
+                } else if let artist = library.artistGroup(named: track.albumArtist) {
+                    engine.playFromLibrary(artist.tracks, startIndex: 0, store: library, shuffleTracks: true)
+                } else {
+                    engine.playFromLibrary([track], startIndex: 0, store: library)
+                }
+                dismiss()
+            } label: {
+                Image(systemName: "shuffle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Shuffle Album")
         }
         .libraryPlaybackMenu(engine: engine, library: library, tracks: [track])
     }

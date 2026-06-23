@@ -9,6 +9,8 @@ struct FocusMixRow: View {
     let mixes: [FocusMix]
     let accent: Color
     let artworkURL: (String?) -> URL?
+    @ObservedObject var engine: AudioEngine
+    @ObservedObject var library: LibraryStore
     let onPlay: (FocusMix, Bool) -> Void
 
     var body: some View {
@@ -22,6 +24,12 @@ struct FocusMixRow: View {
                             artworkURL: artworkURL(mix.artworkFile),
                             onPlay: { onPlay(mix, false) },
                             onShuffle: { onPlay(mix, true) }
+                        )
+                        .libraryPlaybackMenu(
+                            engine: engine,
+                            library: library,
+                            tracks: mix.tracks,
+                            shuffleTracks: mix.id == "genre-focus" || mix.id == "favorites-focus" || mix.id == "discover"
                         )
                     }
                 }
@@ -43,8 +51,11 @@ private struct FocusMixCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ZStack(alignment: .bottomTrailing) {
-                CachedArtwork(url: artworkURL, size: 130, rounded: false)
-                    .scaleEffect(isHovered ? 1.02 : 1)
+                Button(action: onPlay) {
+                    CachedArtwork(url: artworkURL, size: 130, rounded: false)
+                        .scaleEffect(isHovered ? 1.02 : 1)
+                }
+                .buttonStyle(.plain)
 
                 if isHovered {
                     HStack(spacing: 8) {
@@ -70,13 +81,18 @@ private struct FocusMixCard: View {
                 }
             }
 
-            Text(mix.title)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-            Text(mix.subtitle)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            Button(action: onPlay) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(mix.title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text(mix.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .buttonStyle(.plain)
         }
         .frame(width: 130)
         .onHover { isHovered = $0 }

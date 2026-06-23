@@ -320,6 +320,8 @@ struct HomeView: View {
                         mixes: library.focusMixes,
                         accent: theme.accent,
                         artworkURL: { library.artworkURL(for: $0) },
+                        engine: engine,
+                        library: library,
                         onPlay: { mix, shuffle in
                             engine.playFromLibrary(
                                 mix.tracks,
@@ -335,7 +337,8 @@ struct HomeView: View {
                         stats: library.genreListeningStats,
                         accent: theme.accent,
                         maxBars: 5,
-                        onGenreSelected: { openGenre($0) }
+                        onGenreSelected: { openGenre($0) },
+                        onViewAll: { selectSection(.stats) }
                     )
                 }
                 recentActivityPanel
@@ -370,15 +373,43 @@ struct HomeView: View {
 
     private var statsRow: some View {
         HStack(spacing: 16) {
-            HomeStatCard(icon: "person.fill", label: "Artists", value: artists.count, accent: theme.accent)
-            HomeStatCard(icon: "square.stack.fill", label: "Albums", value: albums.count, accent: theme.accent)
-            HomeStatCard(icon: "music.note", label: "Tracks", value: library.tracks.count, accent: theme.accent)
             HomeStatCard(
-                icon: "clock.fill",
-                label: "Hours",
-                value: Int(library.tracks.reduce(0) { $0 + $1.duration } / 3600),
-                accent: theme.accent
+                icon: "person.fill",
+                label: "Artists",
+                value: artists.count,
+                accent: theme.accent,
+                action: { selectSection(.artists) }
             )
+            HomeStatCard(
+                icon: "square.stack.fill",
+                label: "Albums",
+                value: albums.count,
+                accent: theme.accent,
+                action: { selectSection(.albums) }
+            )
+            HomeStatCard(
+                icon: "music.note",
+                label: "Tracks",
+                value: library.tracks.count,
+                accent: theme.accent,
+                action: { selectSection(.tracks) }
+            )
+            if library.totalPlayCount > 0 {
+                HomeStatCard(
+                    icon: "clock.fill",
+                    label: "Listened",
+                    value: max(1, Int(library.totalListenSeconds / 3600)),
+                    accent: theme.accent,
+                    action: { selectSection(.stats) }
+                )
+            } else {
+                HomeStatCard(
+                    icon: "clock.fill",
+                    label: "Hours",
+                    value: Int(library.tracks.reduce(0) { $0 + $1.duration } / 3600),
+                    accent: theme.accent
+                )
+            }
         }
     }
 
@@ -688,6 +719,14 @@ struct HomeView: View {
                     .font(.system(size: 32, weight: .regular, design: .serif))
                     .padding(.top, 24)
 
+                if library.totalPlayCount > 0 {
+                    ListeningStatsSummary(
+                        listenSeconds: library.totalListenSeconds,
+                        playCount: library.totalPlayCount,
+                        accent: theme.accent
+                    )
+                }
+
                 GenreListeningChart(
                     stats: library.genreListeningStats,
                     accent: theme.accent,
@@ -723,9 +762,9 @@ struct HomeView: View {
                 ListeningTimelineView(
                     days: library.listeningTimeline,
                     accent: theme.accent,
-                    onSelectTrack: { track in
-                        playTrackAlbum(track)
-                    }
+                    artworkURL: { library.artworkURL(for: $0) },
+                    onPlayTrack: { play($0) },
+                    onOpenAlbum: { openTrackAlbum($0) }
                 )
             }
             .padding(.horizontal, 32)
@@ -1077,6 +1116,14 @@ struct HomeView: View {
         withAnimation(.spring(response: 0.4, dampingFraction: 0.88)) {
             selectedSection = .home
             detailAlbum = album
+            detailArtist = nil
+        }
+    }
+
+    private func selectSection(_ section: HomeSection) {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+            selectedSection = section
+            detailAlbum = nil
             detailArtist = nil
         }
     }

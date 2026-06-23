@@ -10,9 +10,12 @@ struct HomeStatCard: View {
     let label: String
     let value: Int
     let accent: Color
+    var action: (() -> Void)? = nil
+
+    @State private var isHovered = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let card = VStack(alignment: .leading, spacing: 10) {
             Image(systemName: icon)
                 .font(.title3)
                 .foregroundStyle(accent)
@@ -32,8 +35,18 @@ struct HomeStatCard: View {
         }
         .overlay(
             RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium, style: .continuous)
-                .strokeBorder(.white.opacity(0.1), lineWidth: 1)
+                .strokeBorder(.white.opacity(isHovered && action != nil ? 0.22 : 0.1), lineWidth: 1)
         )
+        .scaleEffect(isHovered && action != nil ? 1.02 : 1)
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: isHovered)
+
+        if let action {
+            Button(action: action) { card }
+                .buttonStyle(.plain)
+                .onHover { isHovered = $0 }
+        } else {
+            card
+        }
     }
 }
 
