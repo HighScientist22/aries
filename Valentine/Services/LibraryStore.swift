@@ -14,6 +14,7 @@ class LibraryStore: ObservableObject {
     @Published private(set) var albumGroups: [AlbumGroup] = []
     @Published private(set) var artistGroups: [ArtistGroup] = []
     @Published private(set) var genreGroups: [GenreGroup] = []
+    @Published private(set) var yearGroups: [YearGroup] = []
     @Published private(set) var recentlyPlayedIDs: [UUID] = []
     @Published private(set) var favoriteTrackIDs: Set<UUID> = []
     @Published private(set) var favoriteAlbumIDs: Set<String> = []
@@ -100,10 +101,12 @@ class LibraryStore: ObservableObject {
             let albums = groupAlbums(from: snapshot)
             let artists = groupArtists(from: snapshot)
             let genres = groupGenres(from: snapshot)
+            let years = groupYears(from: snapshot)
             await MainActor.run {
                 self.albumGroups = albums
                 self.artistGroups = artists
                 self.genreGroups = genres
+                self.yearGroups = years
             }
         }
     }
@@ -125,12 +128,57 @@ class LibraryStore: ObservableObject {
     }
 
     var genreListeningStats: [GenreListeningStat] {
-        let names = Set(listeningStats.genrePlayCounts.keys).union(listeningStats.genreListenSeconds.keys)
+        rankedListeningStats(
+            playCounts: listeningStats.genrePlayCounts,
+            listenSeconds: listeningStats.genreListenSeconds
+        )
+        .map { GenreListeningStat(name: $0.title, playCount: $0.playCount, listenSeconds: $0.listenSeconds) }
+    }
+
+    var artistListeningStats: [NamedListeningStat] {
+        rankedListeningStats(
+            playCounts: listeningStats.artistPlayCounts,
+            listenSeconds: listeningStats.artistListenSeconds
+        )
+        .map {
+            NamedListeningStat(
+                id: $0.id,
+                title: $0.title,
+                subtitle: "Artist",
+                playCount: $0.playCount,
+                listenSeconds: $0.listenSeconds
+            )
+        }
+    }
+
+    var albumListeningStats: [NamedListeningStat] {
+        let ranked = rankedListeningStats(
+            playCounts: listeningStats.albumPlayCounts,
+            listenSeconds: listeningStats.albumListenSeconds
+        )
+        return ranked.map { item in
+            let album = albumGroups.first { $0.id == item.id }
+            return NamedListeningStat(
+                id: item.id,
+                title: album?.title ?? item.title,
+                subtitle: album?.artist,
+                playCount: item.playCount,
+                listenSeconds: item.listenSeconds
+            )
+        }
+    }
+
+    private func rankedListeningStats(
+        playCounts: [String: Int],
+        listenSeconds: [String: Double]
+    ) -> [(id: String, title: String, playCount: Int, listenSeconds: TimeInterval)] {
+        let names = Set(playCounts.keys).union(listenSeconds.keys)
         return names.map { name in
-            GenreListeningStat(
-                name: name,
-                playCount: listeningStats.genrePlayCounts[name, default: 0],
-                listenSeconds: listeningStats.genreListenSeconds[name, default: 0]
+            (
+                id: name,
+                title: name,
+                playCount: playCounts[name, default: 0],
+                listenSeconds: listenSeconds[name, default: 0]
             )
         }
         .sorted {
@@ -148,6 +196,16 @@ class LibraryStore: ObservableObject {
             listeningStats.genrePlayCounts[genre, default: 0] += 1
             listeningStats.genreListenSeconds[genre, default: 0] += track.duration
         }
+
+        let artist = track.albumArtist
+        listeningStats.artistPlayCounts[artist, default: 0] += 1
+        listeningStats.artistListenSeconds[artist, default: 0] += track.duration
+
+        if let album = albumGroup(for: track) {
+            listeningStats.albumPlayCounts[album.id, default: 0] += 1
+            listeningStats.albumListenSeconds[album.id, default: 0] += track.duration
+        }
+
         persistListeningStats()
     }
 

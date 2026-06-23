@@ -47,7 +47,8 @@ struct HomeView: View {
                         albums: albumsForArtist(artist),
                         engine: engine,
                         library: library,
-                        onBack: { withAnimation(.spring(response: 0.4, dampingFraction: 0.88)) { detailArtist = nil } }
+                        onBack: { withAnimation(.spring(response: 0.4, dampingFraction: 0.88)) { detailArtist = nil } },
+                        onOpenAlbum: { openAlbum($0) }
                     )
                 } else {
                     switch selectedSection {
@@ -63,6 +64,12 @@ struct HomeView: View {
                         favoritesBrowser
                     case .genres:
                         genresBrowser
+                    case .years:
+                        yearsBrowser
+                    case .year(let year):
+                        yearBrowser(year)
+                    case .stats:
+                        statsBrowser
                     case .genre(let name):
                         genreBrowser(name)
                     case .playlist(let id):
@@ -108,6 +115,7 @@ struct HomeView: View {
                 sidebarAction(icon: "magnifyingglass", label: "Search") {
                     navigation.openLibrarySearch()
                 }
+                sidebarItem(.stats, icon: "chart.bar.fill", label: "Stats")
             }
 
             sidebarGroup("My Library") {
@@ -115,6 +123,9 @@ struct HomeView: View {
                 sidebarItem(.artists, icon: "person.fill", label: "Artists")
                 if !library.genreGroups.isEmpty {
                     sidebarItem(.genres, icon: "guitars.fill", label: "Genres")
+                }
+                if !library.yearGroups.isEmpty {
+                    sidebarItem(.years, icon: "calendar", label: "Years")
                 }
                 sidebarItem(.tracks, icon: "music.note", label: "Tracks")
                 sidebarItem(.favorites, icon: "heart.fill", label: "Favorites")
@@ -304,7 +315,9 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 32) {
                 greetingHeader
                 statsRow
-                GenreListeningChart(stats: library.genreListeningStats, accent: theme.accent)
+                if !library.genreListeningStats.isEmpty {
+                    GenreListeningChart(stats: library.genreListeningStats, accent: theme.accent, maxBars: 5)
+                }
                 recentActivityPanel
                 albumRow("Albums", albums: Array(albums.prefix(12)))
                 artistRow("Artists", artists: Array(artists.prefix(12)))
@@ -648,6 +661,141 @@ struct HomeView: View {
         }
     }
 
+    private var statsBrowser: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                Text("Listening Stats")
+                    .font(.system(size: 32, weight: .regular, design: .serif))
+                    .padding(.top, 24)
+
+                GenreListeningChart(stats: library.genreListeningStats, accent: theme.accent)
+
+                HStack(alignment: .top, spacing: 20) {
+                    TopListeningList(
+                        title: "Top Artists",
+                        stats: library.artistListeningStats,
+                        accent: theme.accent
+                    )
+                    .frame(maxWidth: .infinity)
+
+                    TopListeningList(
+                        title: "Top Albums",
+                        stats: library.albumListeningStats,
+                        accent: theme.accent
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 48)
+        }
+    }
+
+    private var yearsBrowser: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("Years")
+                    .font(.system(size: 32, weight: .regular, design: .serif))
+                    .padding(.top, 24)
+
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 100, maximum: 140), spacing: 16)],
+                    spacing: 16
+                ) {
+                    ForEach(library.yearGroups) { yearGroup in
+                        Button {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+                                selectedSection = .year(yearGroup.year)
+                            }
+                        } label: {
+                            VStack(spacing: 6) {
+                                Text(String(yearGroup.year))
+                                    .font(.title2.weight(.semibold))
+                                Text("\(yearGroup.tracks.count) tracks")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 20)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 48)
+        }
+    }
+
+    private func yearBrowser(_ year: Int) -> some View {
+        let yearGroup = library.yearGroups.first { $0.year == year }
+        let yearAlbums = yearGroup.map { group in
+            albums.filter { album in
+                album.tracks.contains { $0.year == year }
+            }
+        } ?? []
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack(spacing: 12) {
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+                            selectedSection = .years
+                        }
+                    } label: {
+                        Label("Years", systemImage: "chevron.left")
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.accent)
+
+                    Text(String(year))
+                        .font(.system(size: 32, weight: .regular, design: .serif))
+                }
+                .padding(.top, 24)
+
+                if let yearGroup {
+                    HStack(spacing: 12) {
+                        Button {
+                            engine.playFromLibrary(yearGroup.tracks, startIndex: 0, store: library)
+                        } label: {
+                            Label("Play \(year)", systemImage: "play.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 10)
+                                .background(theme.accent, in: Capsule())
+                                .foregroundStyle(.white)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if !yearAlbums.isEmpty {
+                        albumRow("Albums", albums: yearAlbums)
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Tracks")
+                            .font(.title3.weight(.semibold))
+                        LazyVStack(spacing: 2) {
+                            ForEach(yearGroup.tracks) { track in
+                                LibraryTrackRow(
+                                    track: track,
+                                    artworkURL: library.artworkURL(for: track),
+                                    accent: theme.accent
+                                ) { play(track) }
+                                .libraryPlaybackMenu(engine: engine, library: library, tracks: [track])
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 48)
+        }
+    }
+
     private var favoritesBrowser: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -936,8 +1084,9 @@ private struct RecentAlbumItem: Identifiable {
 }
 
 private enum HomeSection: Hashable {
-    case home, albums, artists, genres, tracks, favorites
+    case home, stats, albums, artists, genres, years, tracks, favorites
     case genre(String)
+    case year(Int)
     case playlist(UUID)
 }
 

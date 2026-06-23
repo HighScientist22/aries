@@ -13,6 +13,7 @@ struct ArtistDetailView: View {
     @EnvironmentObject var theme: AlbumTheme
     @EnvironmentObject var navigation: AppNavigation
     let onBack: () -> Void
+    let onOpenAlbum: (AlbumGroup) -> Void
 
     @State private var detail: EnrichedArtistDetail?
     @State private var isLoading = true
@@ -76,25 +77,15 @@ struct ArtistDetailView: View {
                                     spacing: 20
                                 ) {
                                     ForEach(albums) { album in
-                                        Button {
-                                            playAlbum(album)
-                                        } label: {
-                                            VStack(alignment: .leading, spacing: 8) {
-                                                CachedArtwork(
-                                                    url: library.artworkURL(for: album.artworkFile),
-                                                    size: 140,
-                                                    rounded: false
-                                                )
-                                                Text(album.title)
-                                                    .font(.caption.weight(.medium))
-                                                    .lineLimit(2)
-                                                    .multilineTextAlignment(.leading)
-                                                Text("\(album.tracks.count) tracks")
-                                                    .font(.caption2)
-                                                    .foregroundStyle(.secondary)
-                                            }
-                                        }
-                                        .buttonStyle(.plain)
+                                        LibraryMediaTile(
+                                            title: album.title,
+                                            subtitle: "\(album.tracks.count) tracks",
+                                            artworkURL: library.artworkURL(for: album.artworkFile),
+                                            style: .album,
+                                            accent: theme.accent,
+                                            onOpen: { onOpenAlbum(album) },
+                                            onPlay: { playAlbum(album) }
+                                        )
                                         .libraryPlaybackMenu(
                                             engine: engine,
                                             library: library,

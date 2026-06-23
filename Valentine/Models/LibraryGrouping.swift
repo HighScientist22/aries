@@ -26,6 +26,12 @@ struct GenreGroup: Identifiable, Hashable {
     var id: String { name }
 }
 
+struct YearGroup: Identifiable, Hashable {
+    let year: Int
+    let tracks: [LibraryTrack]
+    var id: Int { year }
+}
+
 func groupAlbums(from tracks: [LibraryTrack]) -> [AlbumGroup] {
     let grouped = Dictionary(grouping: tracks) { track in
         "\(track.album ?? track.title)|\(track.albumArtist)"
@@ -68,6 +74,18 @@ func groupGenres(from tracks: [LibraryTrack]) -> [GenreGroup] {
         GenreGroup(name: name, tracks: genreTracks.sorted(by: sortTracksForAlbum))
     }
     .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+}
+
+func groupYears(from tracks: [LibraryTrack]) -> [YearGroup] {
+    let withYears = tracks.compactMap { track -> (Int, LibraryTrack)? in
+        guard let year = track.year else { return nil }
+        return (year, track)
+    }
+    let grouped = Dictionary(grouping: withYears, by: \.0)
+    return grouped.map { year, pairs in
+        YearGroup(year: year, tracks: pairs.map(\.1).sorted(by: sortTracksForAlbum))
+    }
+    .sorted { $0.year > $1.year }
 }
 
 func albumsForGenre(_ genre: GenreGroup, from albumGroups: [AlbumGroup]) -> [AlbumGroup] {

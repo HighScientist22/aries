@@ -8,6 +8,10 @@ import Foundation
 struct ListeningStats: Codable {
     var genrePlayCounts: [String: Int] = [:]
     var genreListenSeconds: [String: Double] = [:]
+    var artistPlayCounts: [String: Int] = [:]
+    var artistListenSeconds: [String: Double] = [:]
+    var albumPlayCounts: [String: Int] = [:]
+    var albumListenSeconds: [String: Double] = [:]
 }
 
 struct GenreListeningStat: Identifiable, Hashable {
@@ -16,6 +20,14 @@ struct GenreListeningStat: Identifiable, Hashable {
     let listenSeconds: TimeInterval
 
     var id: String { name }
+}
+
+struct NamedListeningStat: Identifiable, Hashable {
+    let id: String
+    let title: String
+    let subtitle: String?
+    let playCount: Int
+    let listenSeconds: TimeInterval
 }
 
 func splitGenreTags(from raw: String?) -> [String] {
