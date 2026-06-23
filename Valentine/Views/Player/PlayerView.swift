@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PlayerView: View {
     @ObservedObject var engine: AudioEngine
+    @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var theme: AlbumTheme
     @EnvironmentObject var navigation: AppNavigation
     var togglePlaylist: () -> Void
@@ -85,10 +86,38 @@ struct PlayerView: View {
                 }
 
                 if let album = engine.currentTrack?.album, !album.isEmpty {
-                    Text(album)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary.opacity(0.8))
-                        .lineLimit(1)
+                    Menu {
+                        if let libraryTrack = currentLibraryTrack,
+                           let albumGroup = library.albumGroup(for: libraryTrack) {
+                            Button {
+                                engine.playFromLibrary(albumGroup.tracks, startIndex: 0, store: library)
+                            } label: {
+                                Label("Play Album", systemImage: "play.circle.fill")
+                            }
+                            Button {
+                                engine.playFromLibrary(
+                                    albumGroup.tracks,
+                                    startIndex: 0,
+                                    store: library,
+                                    shuffleTracks: true
+                                )
+                            } label: {
+                                Label("Shuffle Album", systemImage: "shuffle")
+                            }
+                            Button {
+                                navigation.openAlbum(albumGroup)
+                            } label: {
+                                Label("View Album", systemImage: "square.stack")
+                            }
+                        }
+                    } label: {
+                        Text(album)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary.opacity(0.8))
+                            .lineLimit(1)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
                 }
             }
             .multilineTextAlignment(.center)
@@ -210,5 +239,10 @@ struct PlayerView: View {
         }
         .safeAreaPadding(.top, 24)
         .safeAreaPadding(.bottom, 16)
+    }
+
+    private var currentLibraryTrack: LibraryTrack? {
+        guard let id = engine.currentLibraryTrackID else { return nil }
+        return library.tracks.first { $0.id == id }
     }
 }

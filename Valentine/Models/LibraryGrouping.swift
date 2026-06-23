@@ -58,11 +58,9 @@ func groupArtists(from tracks: [LibraryTrack]) -> [ArtistGroup] {
 func groupGenres(from tracks: [LibraryTrack]) -> [GenreGroup] {
     var grouped: [String: [LibraryTrack]] = [:]
     for track in tracks {
-        guard let raw = track.genre?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { continue }
-        let parts = raw.split { $0 == ";" || $0 == "/" || $0 == "," }
-        for part in parts {
-            let name = part.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty else { continue }
+        let tags = splitGenreTags(from: track.genre)
+        guard !tags.isEmpty else { continue }
+        for name in tags {
             grouped[name, default: []].append(track)
         }
     }
@@ -77,6 +75,28 @@ func albumsForGenre(_ genre: GenreGroup, from albumGroups: [AlbumGroup]) -> [Alb
     return albumGroups.filter { album in
         album.tracks.contains { trackIDs.contains($0.id) }
     }
+}
+
+func albumGroup(for track: LibraryTrack, in albumGroups: [AlbumGroup]) -> AlbumGroup? {
+    albumGroups.first { group in
+        group.tracks.contains { $0.id == track.id }
+    }
+}
+
+func albumGroup(for track: LibraryTrack, in tracks: [LibraryTrack]) -> AlbumGroup? {
+    let albumTitle = track.album ?? track.title
+    let matching = tracks.filter {
+        ($0.album ?? $0.title) == albumTitle
+            && ($0.albumArtist == track.albumArtist || $0.artist == track.artist)
+    }
+    guard !matching.isEmpty else { return nil }
+    let ordered = matching.sorted(by: sortTracksForAlbum)
+    return AlbumGroup(
+        title: albumTitle,
+        artist: track.albumArtist,
+        artworkFile: ordered.first(where: { $0.artworkFile != nil })?.artworkFile,
+        tracks: ordered
+    )
 }
 
 func sortTracksForAlbum(_ lhs: LibraryTrack, _ rhs: LibraryTrack) -> Bool {

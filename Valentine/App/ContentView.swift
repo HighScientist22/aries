@@ -78,6 +78,10 @@ struct ContentView: View {
                 guard name != nil else { return }
                 withAnimation(navAnimation) { showHome = true }
             }
+            .onChange(of: navigation.albumIDToOpen) { _, albumID in
+                guard albumID != nil else { return }
+                withAnimation(navAnimation) { showHome = true }
+            }
             .toolbar {
                 ToolbarItem(placement: .navigation) {
                     Button(action: {
@@ -127,6 +131,10 @@ struct ContentView: View {
         .sheet(isPresented: $navigation.showLibrarySearch) {
             LibrarySearchView(engine: engine, library: library)
                 .environmentObject(navigation)
+                .environmentObject(theme)
+        }
+        .sheet(isPresented: $navigation.showSmartPlaylistBuilder) {
+            SmartPlaylistBuilderView(library: library)
                 .environmentObject(theme)
         }
     }

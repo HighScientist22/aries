@@ -62,6 +62,8 @@ class AudioEngine: ObservableObject {
 
     private let engine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
+    private let crossfadeNode = AVAudioPlayerNode()
+    private let mixNode = AVAudioMixerNode()
     private let timePitch = AVAudioUnitTimePitch()
     private let eqNode: AVAudioUnitEQ
 
@@ -80,6 +82,9 @@ class AudioEngine: ObservableObject {
     private var playbackGeneration = 0
     private var displayLink: Timer?
     private var gaplessAheadIndex: Int?
+    private var isCrossfading = false
+    private var crossfadeStartedAt: Date?
+    private var crossfadeNextIndex: Int?
     private var queueSaveTask: Task<Void, Never>?
     private var hasRestoredQueue = false
 
@@ -100,6 +105,16 @@ class AudioEngine: ObservableObject {
     var currentTrack: Track? {
         guard let index = currentTrackIndex, queue.indices.contains(index) else { return nil }
         return queue[index]
+    }
+
+    var currentLibraryTrackID: UUID? {
+        guard let index = currentTrackIndex, queueLibraryIDs.indices.contains(index) else { return nil }
+        return queueLibraryIDs[index]
+    }
+
+    func libraryTrackID(at index: Int) -> UUID? {
+        guard queueLibraryIDs.indices.contains(index) else { return nil }
+        return queueLibraryIDs[index]
     }
 
     init() {
@@ -154,11 +169,14 @@ class AudioEngine: ObservableObject {
         timePitch.overlap = 8
 
         engine.attach(playerNode)
+        engine.attach(crossfadeNode)
+        engine.attach(mixNode)
         engine.attach(timePitch)
         engine.attach(eqNode)
 
-        // playerNode -> timePitch -> eq -> mainMixer
-        engine.connect(playerNode, to: timePitch, format: nil)
+        engine.connect(playerNode, to: mixNode, format: nil)
+        engine.connect(crossfadeNode, to: mixNode, format: nil)
+        engine.connect(mixNode, to: timePitch, format: nil)
         engine.connect(timePitch, to: eqNode, format: nil)
         engine.connect(eqNode, to: engine.mainMixerNode, format: nil)
 
@@ -502,8 +520,16 @@ class AudioEngine: ObservableObject {
             : UserDefaults.standard.bool(forKey: "gaplessPlayback")
     }
 
+    private var crossfadeSeconds: TimeInterval {
+        UserDefaults.standard.double(forKey: "crossfadeDuration")
+    }
+
+    private var isCrossfadeEnabled: Bool {
+        crossfadeSeconds > 0 && !shuffleMode && repeatMode != .one
+    }
+
     private var shouldUseGaplessChain: Bool {
-        isGaplessEnabled && !shuffleMode && segmentStartFrame == 0 && repeatMode != .one
+        isGaplessEnabled && !isCrossfadeEnabled && !shuffleMode && segmentStartFrame == 0 && repeatMode != .one
     }
 
     // Schedules the current file from `segmentStartFrame` to its end. Uses the
@@ -525,6 +551,7 @@ class AudioEngine: ObservableObject {
                 guard let self = self else { return }
                 // Ignore completions from a segment we've since replaced (skip/seek/stop).
                 guard self.playbackGeneration == generation, self.isPlaying else { return }
+                guard !self.isCrossfading else { return }
                 self.isSegmentScheduled = false
                 self.nextTrack(isAutomatic: true)
             }
@@ -682,9 +709,15 @@ class AudioEngine: ObservableObject {
 
     private func stopPlayback() {
         playerNode.stop()
+        crossfadeNode.stop()
+        playerNode.volume = 1
+        crossfadeNode.volume = 1
         isPlaying = false
         isSegmentScheduled = false
         gaplessAheadIndex = nil
+        isCrossfading = false
+        crossfadeStartedAt = nil
+        crossfadeNextIndex = nil
         stopDisplayLink()
     }
 
@@ -742,6 +775,9 @@ class AudioEngine: ObservableObject {
         playerNode.stop()
         isSegmentScheduled = false
         gaplessAheadIndex = nil
+        isCrossfading = false
+        crossfadeStartedAt = nil
+        crossfadeNextIndex = nil
         segmentStartFrame = AVAudioFramePosition(clamped * sampleRate)
         currentTime = clamped
 
@@ -753,6 +789,32 @@ class AudioEngine: ObservableObject {
             startDisplayLink()
         }
         updateNowPlayingInfo()
+        persistQueueSoon()
+    }
+
+    func moveQueue(from source: IndexSet, to destination: Int) {
+        guard !source.isEmpty else { return }
+        let currentId = currentTrack?.id
+        queue.move(fromOffsets: source, toOffset: destination)
+        queueLibraryIDs.move(fromOffsets: source, toOffset: destination)
+        if let currentId {
+            currentTrackIndex = queue.firstIndex(where: { $0.id == currentId })
+        }
+        persistQueueSoon()
+    }
+
+    func playNextInQueue(_ trackID: UUID) {
+        guard let currentIndex = currentTrackIndex,
+              let trackIndex = queue.firstIndex(where: { $0.id == trackID }),
+              trackIndex != currentIndex else { return }
+
+        let track = queue.remove(at: trackIndex)
+        let libraryID = queueLibraryIDs.remove(at: trackIndex)
+        let newCurrentIndex = currentIndex > trackIndex ? currentIndex - 1 : currentIndex
+        let insertIndex = min(newCurrentIndex + 1, queue.count)
+        queue.insert(track, at: insertIndex)
+        queueLibraryIDs.insert(libraryID, at: insertIndex)
+        currentTrackIndex = newCurrentIndex
         persistQueueSoon()
     }
 
@@ -853,6 +915,82 @@ class AudioEngine: ObservableObject {
                 ListenBrainzService.shared.scrobble(track: currentTrack.title, artist: currentTrack.artist, album: currentTrack.album, timestamp: currentTrackStartTime)
             }
         }
+
+        updateCrossfadeIfNeeded()
+    }
+
+    private func updateCrossfadeIfNeeded() {
+        if isCrossfading {
+            updateCrossfadeMix()
+            return
+        }
+
+        guard isCrossfadeEnabled, isPlaying, !shouldUseGaplessChain,
+              let index = currentTrackIndex else { return }
+
+        let remaining = duration - currentTime
+        guard remaining > 0, remaining <= crossfadeSeconds,
+              let next = sequentialIndex(after: index) else { return }
+
+        startCrossfade(to: next)
+    }
+
+    private func startCrossfade(to nextIndex: Int) {
+        guard queue.indices.contains(nextIndex) else { return }
+        do {
+            let file = try AVAudioFile(forReading: queue[nextIndex].url)
+            crossfadeNode.stop()
+            crossfadeNode.volume = 0
+            crossfadeNode.scheduleFile(file, at: nil)
+            crossfadeNode.play()
+            isCrossfading = true
+            crossfadeStartedAt = Date()
+            crossfadeNextIndex = nextIndex
+        } catch {
+            print("Crossfade schedule failed: \(error)")
+        }
+    }
+
+    private func updateCrossfadeMix() {
+        guard let started = crossfadeStartedAt else { return }
+        let duration = max(0.1, crossfadeSeconds)
+        let progress = min(1, Date().timeIntervalSince(started) / duration)
+        playerNode.volume = Float(1 - progress)
+        crossfadeNode.volume = Float(progress)
+
+        if progress >= 1 {
+            completeCrossfade()
+        }
+    }
+
+    private func completeCrossfade() {
+        guard let nextIndex = crossfadeNextIndex else { return }
+
+        playerNode.stop()
+        crossfadeNode.stop()
+        playerNode.volume = 1
+        crossfadeNode.volume = 1
+        isCrossfading = false
+        crossfadeStartedAt = nil
+        crossfadeNextIndex = nil
+        isSegmentScheduled = false
+        gaplessAheadIndex = nil
+
+        applyTrackTransition(to: nextIndex)
+        segmentStartFrame = AVAudioFramePosition(crossfadeSeconds * sampleRate)
+        currentTime = crossfadeSeconds
+
+        if shouldUseGaplessChain {
+            scheduleGaplessChain(from: nextIndex)
+        } else {
+            scheduleFromCurrentSegment()
+        }
+
+        if isPlaying {
+            startEngineIfNeeded()
+            playerNode.play()
+        }
+        updateNowPlayingInfo()
     }
 
     private func generateWaveform(for url: URL, generation: Int) {

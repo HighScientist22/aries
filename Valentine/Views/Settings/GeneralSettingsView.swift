@@ -53,6 +53,7 @@ struct GeneralSettingsView: View {
     @AppStorage("isGlowEffectEnabled") private var isGlowEffectEnabled = false
     @AppStorage("isNeonEffectEnabled") private var isNeonEffectEnabled = false
     @AppStorage("gaplessPlayback") private var gaplessPlayback = true
+    @AppStorage("crossfadeDuration") private var crossfadeDuration = 0.0
     @AppStorage("miniPlayerGlassMode") private var miniPlayerGlassMode = 0
     @AppStorage("appTheme") private var appTheme = 0
     @AppStorage("customGreeting") private var customGreeting: String = ""
@@ -100,6 +101,20 @@ struct GeneralSettingsView: View {
                 Text("Pre-schedules the next track for seamless transitions between songs.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Crossfade")
+                        Spacer()
+                        Text(crossfadeDuration > 0 ? String(format: "%.0fs", crossfadeDuration) : "Off")
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(value: $crossfadeDuration, in: 0...12, step: 1)
+                    Text("Overlaps the end of each track with the next. Set to 0 to disable.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
 
             Section(header: Text("Synced Lyrics Effects")) {

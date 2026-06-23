@@ -13,13 +13,24 @@ final class AppNavigation: ObservableObject {
     @Published var shouldOpenSettings = false
     @Published var focusGreetingField = false
     @Published var showLibrarySearch = false
+    @Published var showSmartPlaylistBuilder = false
+
+    @Published var albumIDToOpen: String?
 
     func openArtist(_ name: String) {
         artistNameToOpen = name
     }
 
+    func openAlbum(_ album: AlbumGroup) {
+        albumIDToOpen = album.id
+    }
+
     func openLibrarySearch() {
         showLibrarySearch = true
+    }
+
+    func openSmartPlaylistBuilder() {
+        showSmartPlaylistBuilder = true
     }
 
     func openSettings(tab: SettingsTab = .general, focusGreeting: Bool = false) {

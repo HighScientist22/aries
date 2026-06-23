@@ -84,6 +84,12 @@ struct HomeView: View {
             openArtist(artist)
             navigation.artistNameToOpen = nil
         }
+        .onChange(of: navigation.albumIDToOpen) { _, albumID in
+            guard let albumID,
+                  let album = albums.first(where: { $0.id == albumID }) else { return }
+            openAlbum(album)
+            navigation.albumIDToOpen = nil
+        }
     }
 
     // MARK: - Sidebar
@@ -140,6 +146,10 @@ struct HomeView: View {
         Menu {
             Button("New Playlist", action: createPlaylist)
             Menu("New Smart Playlist") {
+                Button("Custom Rules…") {
+                    navigation.openSmartPlaylistBuilder()
+                }
+                Divider()
                 Button("Favorite Tracks") {
                     openSmartPlaylist(library.createSmartPlaylist(rule: .favorites))
                 }
@@ -294,6 +304,7 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 32) {
                 greetingHeader
                 statsRow
+                GenreListeningChart(stats: library.genreListeningStats, accent: theme.accent)
                 recentActivityPanel
                 albumRow("Albums", albums: Array(albums.prefix(12)))
                 artistRow("Artists", artists: Array(artists.prefix(12)))
@@ -373,7 +384,7 @@ struct HomeView: View {
                                     artworkURL: library.artworkURL(for: track),
                                     accent: theme.accent,
                                     onOpen: { openTrackAlbum(track) },
-                                    onPlay: { play(track) }
+                                    onPlay: { playTrackAlbum(track) }
                                 )
                             }
                         }
@@ -693,6 +704,11 @@ struct HomeView: View {
                     Label("Smart playlist — updates automatically", systemImage: "sparkles")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                    if let rule = playlist?.smartRule {
+                        Text(rule.summary)
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
 
                 if playlistTracks.isEmpty {
@@ -855,6 +871,14 @@ struct HomeView: View {
         engine.playFromLibrary(album.tracks, startIndex: 0, store: library)
     }
 
+    private func playTrackAlbum(_ track: LibraryTrack) {
+        if let album = library.albumGroup(for: track) {
+            playAlbum(album)
+        } else {
+            play(track)
+        }
+    }
+
     private func playArtist(_ artist: ArtistGroup) {
         engine.playFromLibrary(artist.tracks, startIndex: 0, store: library)
     }
@@ -874,18 +898,8 @@ struct HomeView: View {
     }
 
     private func openTrackAlbum(_ track: LibraryTrack) {
-        if let album = albums.first(where: { group in
-            group.tracks.contains(where: { $0.id == track.id })
-        }) {
+        if let album = library.albumGroup(for: track) {
             openAlbum(album)
-        } else if let albumTitle = track.album {
-            let group = AlbumGroup(
-                title: albumTitle,
-                artist: track.artist,
-                artworkFile: track.artworkFile,
-                tracks: library.tracks.filter { ($0.album ?? $0.title) == albumTitle && $0.artist == track.artist }
-            )
-            openAlbum(group)
         }
     }
 

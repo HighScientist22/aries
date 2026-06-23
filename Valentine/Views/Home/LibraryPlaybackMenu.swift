@@ -18,12 +18,41 @@ struct LibraryPlaybackMenu: ViewModifier {
         tracks.map(\.id)
     }
 
+    private var resolvedAlbum: AlbumGroup? {
+        if let album { return album }
+        if tracks.count == 1, let track = tracks.first {
+            return library.albumGroup(for: track)
+        }
+        if let first = tracks.first,
+           let group = library.albumGroup(for: first),
+           Set(group.tracks.map(\.id)) == Set(tracks.map(\.id)) {
+            return group
+        }
+        return nil
+    }
+
     func body(content: Content) -> some View {
         content.contextMenu {
+            if let album = resolvedAlbum {
+                Button {
+                    engine.playFromLibrary(album.tracks, startIndex: 0, store: library)
+                } label: {
+                    Label("Play Album", systemImage: "play.circle.fill")
+                }
+
+                Button {
+                    engine.playFromLibrary(album.tracks, startIndex: 0, store: library, shuffleTracks: true)
+                } label: {
+                    Label("Shuffle Album", systemImage: "shuffle")
+                }
+
+                Divider()
+            }
+
             Button {
                 engine.playFromLibrary(tracks, startIndex: startIndex, store: library, shuffleTracks: shuffleTracks)
             } label: {
-                Label("Play Now", systemImage: "play.fill")
+                Label(tracks.count == 1 ? "Play Now" : "Play", systemImage: "play.fill")
             }
 
             Button {
@@ -42,7 +71,7 @@ struct LibraryPlaybackMenu: ViewModifier {
 
             playlistMenu
 
-            if let album {
+            if let album = resolvedAlbum {
                 Divider()
                 Button {
                     library.toggleFavorite(album: album)

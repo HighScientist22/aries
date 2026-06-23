@@ -20,6 +20,7 @@ class LibraryStore: ObservableObject {
     @Published private(set) var favoriteArtistIDs: Set<String> = []
     @Published private(set) var playlists: [SavedPlaylist] = []
     @Published private(set) var isImporting = false
+    @Published private(set) var listeningStats = ListeningStats()
 
     private let supportedExtensions = SupportedAudioFormats.extensions
     private let recentlyPlayedLimit = 25
@@ -31,6 +32,7 @@ class LibraryStore: ObservableObject {
     private let recentURL: URL
     private let favoritesURL: URL
     private let playlistsURL: URL
+    private let listeningStatsURL: URL
     private let artworkDirURL: URL
 
     // Directory watchers: a DispatchSource per watched directory and the
@@ -47,6 +49,7 @@ class LibraryStore: ObservableObject {
         recentURL = baseURL.appendingPathComponent("recent.json")
         favoritesURL = baseURL.appendingPathComponent("favorites.json")
         playlistsURL = baseURL.appendingPathComponent("playlists.json")
+        listeningStatsURL = baseURL.appendingPathComponent("listening-stats.json")
         artworkDirURL = baseURL.appendingPathComponent("Artwork", isDirectory: true)
 
         try? FileManager.default.createDirectory(at: artworkDirURL, withIntermediateDirectories: true)
@@ -78,6 +81,10 @@ class LibraryStore: ObservableObject {
            let decoded = try? JSONDecoder().decode([SavedPlaylist].self, from: data) {
             playlists = decoded.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         }
+        if let data = try? Data(contentsOf: listeningStatsURL),
+           let decoded = try? JSONDecoder().decode(ListeningStats.self, from: data) {
+            listeningStats = decoded
+        }
         recomputeGroups()
     }
 
@@ -107,7 +114,46 @@ class LibraryStore: ObservableObject {
         if recentlyPlayedIDs.count > recentlyPlayedLimit {
             recentlyPlayedIDs = Array(recentlyPlayedIDs.prefix(recentlyPlayedLimit))
         }
+        if let track = tracks.first(where: { $0.id == id }) {
+            recordListening(for: track)
+        }
         scheduleRecentSave()
+    }
+
+    func albumGroup(for track: LibraryTrack) -> AlbumGroup? {
+        Aries.albumGroup(for: track, in: albumGroups) ?? Aries.albumGroup(for: track, in: tracks)
+    }
+
+    var genreListeningStats: [GenreListeningStat] {
+        let names = Set(listeningStats.genrePlayCounts.keys).union(listeningStats.genreListenSeconds.keys)
+        return names.map { name in
+            GenreListeningStat(
+                name: name,
+                playCount: listeningStats.genrePlayCounts[name, default: 0],
+                listenSeconds: listeningStats.genreListenSeconds[name, default: 0]
+            )
+        }
+        .sorted {
+            if $0.listenSeconds == $1.listenSeconds {
+                return $0.playCount > $1.playCount
+            }
+            return $0.listenSeconds > $1.listenSeconds
+        }
+    }
+
+    private func recordListening(for track: LibraryTrack) {
+        let tags = splitGenreTags(from: track.genre)
+        let genreNames = tags.isEmpty ? ["Unknown"] : tags
+        for genre in genreNames {
+            listeningStats.genrePlayCounts[genre, default: 0] += 1
+            listeningStats.genreListenSeconds[genre, default: 0] += track.duration
+        }
+        persistListeningStats()
+    }
+
+    private func persistListeningStats() {
+        guard let data = try? JSONEncoder().encode(listeningStats) else { return }
+        try? data.write(to: listeningStatsURL, options: .atomic)
     }
 
     var recentlyPlayed: [LibraryTrack] {
@@ -223,6 +269,13 @@ class LibraryStore: ObservableObject {
                 .sorted(by: sortTracksForAlbum)
         case .year(let year):
             return tracks.filter { $0.year == year }.sorted(by: sortTracksForAlbum)
+        case .custom(let matchAll, let criteria):
+            guard !criteria.isEmpty else { return [] }
+            return tracks.filter { track in
+                let results = criteria.map { evaluateSmartCriterion($0, track: track, store: self) }
+                return matchAll ? results.allSatisfy { $0 } : results.contains { $0 }
+            }
+            .sorted(by: sortTracksForAlbum)
         }
     }
 
