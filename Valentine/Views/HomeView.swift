@@ -61,6 +61,10 @@ struct HomeView: View {
                         tracksBrowser
                     case .favorites:
                         favoritesBrowser
+                    case .genres:
+                        genresBrowser
+                    case .genre(let name):
+                        genreBrowser(name)
                     case .playlist(let id):
                         playlistBrowser(id)
                     }
@@ -103,6 +107,9 @@ struct HomeView: View {
             sidebarGroup("My Library") {
                 sidebarItem(.albums, icon: "square.stack.fill", label: "Albums")
                 sidebarItem(.artists, icon: "person.fill", label: "Artists")
+                if !library.genreGroups.isEmpty {
+                    sidebarItem(.genres, icon: "guitars.fill", label: "Genres")
+                }
                 sidebarItem(.tracks, icon: "music.note", label: "Tracks")
                 sidebarItem(.favorites, icon: "heart.fill", label: "Favorites")
             }
@@ -468,6 +475,121 @@ struct HomeView: View {
         }
     }
 
+    private var genresBrowser: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("Genres")
+                    .font(.system(size: 32, weight: .regular, design: .serif))
+                    .padding(.top, 24)
+
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 16)],
+                    spacing: 16
+                ) {
+                    ForEach(library.genreGroups) { genre in
+                        Button {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+                                selectedSection = .genre(genre.name)
+                            }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(genre.name)
+                                    .font(.headline)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                                Text("\(genre.tracks.count) tracks")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(16)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 48)
+        }
+    }
+
+    private func genreBrowser(_ name: String) -> some View {
+        let genre = library.genreGroups.first { $0.name == name }
+        let genreAlbums = genre.map { albumsForGenre($0, from: albums) } ?? []
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack(spacing: 12) {
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+                            selectedSection = .genres
+                        }
+                    } label: {
+                        Label("Genres", systemImage: "chevron.left")
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.accent)
+
+                    Text(name)
+                        .font(.system(size: 32, weight: .regular, design: .serif))
+                }
+                .padding(.top, 24)
+
+                if let genre {
+                    HStack(spacing: 12) {
+                        Button {
+                            engine.playFromLibrary(genre.tracks, startIndex: 0, store: library)
+                        } label: {
+                            Label("Play Genre", systemImage: "play.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 10)
+                                .background(theme.accent, in: Capsule())
+                                .foregroundStyle(.white)
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            engine.playFromLibrary(genre.tracks, startIndex: 0, store: library, shuffleTracks: true)
+                        } label: {
+                            Label("Shuffle", systemImage: "shuffle")
+                                .font(.subheadline.weight(.medium))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .glassEffect(.regular, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if !genreAlbums.isEmpty {
+                        albumRow("Albums", albums: genreAlbums)
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Tracks")
+                            .font(.title3.weight(.semibold))
+                        LazyVStack(spacing: 2) {
+                            ForEach(genre.tracks) { track in
+                                LibraryTrackRow(
+                                    track: track,
+                                    artworkURL: library.artworkURL(for: track),
+                                    accent: theme.accent
+                                ) { play(track) }
+                                .libraryPlaybackMenu(engine: engine, library: library, tracks: [track])
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 48)
+        }
+    }
+
     private var favoritesBrowser: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -741,7 +863,8 @@ private struct RecentAlbumItem: Identifiable {
 }
 
 private enum HomeSection: Hashable {
-    case home, albums, artists, tracks, favorites
+    case home, albums, artists, genres, tracks, favorites
+    case genre(String)
     case playlist(UUID)
 }
 

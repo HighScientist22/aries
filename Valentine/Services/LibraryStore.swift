@@ -13,6 +13,7 @@ class LibraryStore: ObservableObject {
     @Published private(set) var tracks: [LibraryTrack] = []
     @Published private(set) var albumGroups: [AlbumGroup] = []
     @Published private(set) var artistGroups: [ArtistGroup] = []
+    @Published private(set) var genreGroups: [GenreGroup] = []
     @Published private(set) var recentlyPlayedIDs: [UUID] = []
     @Published private(set) var favoriteTrackIDs: Set<UUID> = []
     @Published private(set) var favoriteAlbumIDs: Set<String> = []
@@ -91,9 +92,11 @@ class LibraryStore: ObservableObject {
         Task.detached(priority: .utility) {
             let albums = groupAlbums(from: snapshot)
             let artists = groupArtists(from: snapshot)
+            let genres = groupGenres(from: snapshot)
             await MainActor.run {
                 self.albumGroups = albums
                 self.artistGroups = artists
+                self.genreGroups = genres
             }
         }
     }

@@ -20,6 +20,12 @@ struct ArtistGroup: Identifiable, Hashable {
     var id: String { name }
 }
 
+struct GenreGroup: Identifiable, Hashable {
+    let name: String
+    let tracks: [LibraryTrack]
+    var id: String { name }
+}
+
 func groupAlbums(from tracks: [LibraryTrack]) -> [AlbumGroup] {
     let grouped = Dictionary(grouping: tracks) { track in
         "\(track.album ?? track.title)|\(track.albumArtist)"
@@ -47,6 +53,30 @@ func groupArtists(from tracks: [LibraryTrack]) -> [ArtistGroup] {
         )
     }
     .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+}
+
+func groupGenres(from tracks: [LibraryTrack]) -> [GenreGroup] {
+    var grouped: [String: [LibraryTrack]] = [:]
+    for track in tracks {
+        guard let raw = track.genre?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { continue }
+        let parts = raw.split { $0 == ";" || $0 == "/" || $0 == "," }
+        for part in parts {
+            let name = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { continue }
+            grouped[name, default: []].append(track)
+        }
+    }
+    return grouped.map { name, genreTracks in
+        GenreGroup(name: name, tracks: genreTracks.sorted(by: sortTracksForAlbum))
+    }
+    .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+}
+
+func albumsForGenre(_ genre: GenreGroup, from albumGroups: [AlbumGroup]) -> [AlbumGroup] {
+    let trackIDs = Set(genre.tracks.map(\.id))
+    return albumGroups.filter { album in
+        album.tracks.contains { trackIDs.contains($0.id) }
+    }
 }
 
 func sortTracksForAlbum(_ lhs: LibraryTrack, _ rhs: LibraryTrack) -> Bool {
