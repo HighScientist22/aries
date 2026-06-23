@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Valentine
+//  Aries
 //
 //  Created by Jesús David Chapman Vélez on 16/06/26.
 //
@@ -10,23 +10,28 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject var engine: AudioEngine
+    @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var theme: AlbumTheme
     @Environment(\.colorScheme) var colorScheme
     @State private var isTargeted = false
     @State private var isPlaylistVisible = true
+    @State private var showHome = false
     @State private var wasWide = true
     @State private var windowSize: CGSize? = nil
-    
+
     @AppStorage("lastNormalWidth") private var lastNormalWidth: Double = 900
     @AppStorage("lastNormalHeight") private var lastNormalHeight: Double = 600
-    
+
     var body: some View {
         GeometryReader { geometry in
             let currentWidth = geometry.size.width
             let isWide = currentWidth > 600
-            
+
             Group {
-                if engine.queue.isEmpty {
+                if engine.queue.isEmpty && library.tracks.isEmpty {
                     emptyStateView
+                } else if showHome || engine.queue.isEmpty {
+                    HomeView(engine: engine, library: library)
                 } else {
                     HStack(spacing: 0) {
                         if isPlaylistVisible {
@@ -38,7 +43,7 @@ struct ContentView: View {
                                 .background(Color.black.opacity(0.2))
                                 .transition(.asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .leading)))
                         }
-                        
+
                         if isWide || !isPlaylistVisible {
                             PlayerView(
                                 engine: engine,
@@ -67,6 +72,17 @@ struct ContentView: View {
                         Image(systemName: "sidebar.left")
                     }
                 }
+                ToolbarItem(placement: .navigation) {
+                    Button(action: {
+                        withAnimation(.spring()) {
+                            showHome.toggle()
+                        }
+                    }) {
+                        Image(systemName: showHome ? "play.square.stack" : "square.grid.2x2")
+                    }
+                    .disabled(engine.queue.isEmpty)
+                    .help(showHome ? "Show Player" : "Show Library")
+                }
             }
             .toolbarBackground(.hidden, for: .windowToolbar)
             .onDrop(of: ["public.file-url"], isTargeted: $isTargeted) { providers in
@@ -76,7 +92,7 @@ struct ContentView: View {
             .onChange(of: geometry.size) { _, newSize in
                 lastNormalWidth = Double(newSize.width)
                 lastNormalHeight = Double(newSize.height)
-                
+
                 let newIsWide = newSize.width >= 600
                 if newIsWide != wasWide {
                     wasWide = newIsWide
@@ -89,38 +105,29 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 400, minHeight: 540)
+        .tint(theme.accent)
     }
-    
+
     private var backgroundLayer: some View {
-        Group {
-            if engine.queue.isEmpty {
-                Color.clear
-            } else if let art = engine.currentTrack?.albumArt {
+        ZStack {
+            LinearGradient(colors: theme.background, startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+                .animation(.easeInOut(duration: 0.8), value: theme.background)
+
+            if let art = engine.currentTrack?.albumArt {
                 art
                     .resizable()
                     .aspectRatio(contentMode: .fill)
                     .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
                     .clipped()
-                    .blur(radius: 80)
-                    .opacity(0.7)
+                    .blur(radius: 90)
+                    .opacity(0.55)
                     .ignoresSafeArea()
                     .animation(.easeInOut(duration: 1.5), value: engine.currentTrack?.id)
-            } else {
-                if colorScheme == .dark {
-                    LinearGradient(
-                        colors: [Color(red: 0.2, green: 0.1, blue: 0.15), Color(red: 0.1, green: 0.1, blue: 0.1)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    .ignoresSafeArea()
-                } else {
-                    Color(NSColor.windowBackgroundColor)
-                        .ignoresSafeArea()
-                }
             }
         }
     }
-    
+
     private var emptyStateView: some View {
         VStack(spacing: 24) {
             if let appIcon = NSImage(named: NSImage.applicationIconName) {
@@ -148,22 +155,22 @@ struct ContentView: View {
                     )
                     .padding(.bottom, 60)
             }
-            
-            Text("Valentine")
+
+            Text("Aries")
                 .font(.system(size: 32, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
-            
+
             Text("Select a file or a folder, or drag files from your file manager to\nthe application window to add songs to the playlist")
                 .font(.body)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
-            
+
             VStack(spacing: 12) {
                 HoverZoomButton(title: "Add Folder...", isPrimary: true) {
                     selectFiles(directories: true)
                 }
-                
+
                 HoverZoomButton(title: "Add File...", isPrimary: false) {
                     selectFiles(directories: false)
                 }
@@ -172,24 +179,24 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    
+
     private func selectFiles(directories: Bool) {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = directories
         panel.canChooseFiles = !directories
         panel.allowedContentTypes = [.audio]
-        
+
         if panel.runModal() == .OK {
             engine.addTracks(panel.urls)
         }
     }
-    
+
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         let group = DispatchGroup()
         let queue = DispatchQueue(label: "dropQueue")
         var urls: [URL] = []
-        
+
         for provider in providers {
             group.enter()
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { (urlData, error) in
@@ -207,11 +214,12 @@ struct ContentView: View {
                 }
             }
         }
-        
+
         group.notify(queue: .main) {
             queue.sync {
                 if !urls.isEmpty {
                     engine.addTracks(urls)
+                    library.importFiles(urls)
                 }
             }
         }
@@ -223,9 +231,9 @@ struct HoverZoomButton: View {
     let title: LocalizedStringKey
     let isPrimary: Bool
     let action: () -> Void
-    
+
     @State private var isHovered = false
-    
+
     var body: some View {
         Button(action: action) {
             Text(title)

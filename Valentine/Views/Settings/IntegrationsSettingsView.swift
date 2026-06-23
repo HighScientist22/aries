@@ -2,11 +2,12 @@ import SwiftUI
 
 struct IntegrationsSettingsView: View {
     @ObservedObject private var lastFM = LastFMService.shared
-    
+    @ObservedObject private var listenBrainz = ListenBrainzService.shared
+
     @State private var isConnecting = false
     @State private var webAuthToken: String? = nil
     @State private var errorMessage: String? = nil
-    
+
     var body: some View {
         Form {
             Section {
@@ -14,9 +15,9 @@ struct IntegrationsSettingsView: View {
             } header: {
                 Text("Last.fm")
             } footer: {
-                Text("When enabled, Valentine will automatically share your listening history (scrobble) to your Last.fm profile.")
+                Text("When enabled, Aries will automatically share your listening history (scrobble) to your Last.fm profile.")
             }
-            
+
             if lastFM.isEnabled {
                 Section("Account Status") {
                     if lastFM.isConnected {
@@ -24,9 +25,9 @@ struct IntegrationsSettingsView: View {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.green)
                             Text("Connected as **\(lastFM.username)**")
-                            
+
                             Spacer()
-                            
+
                             Button("Disconnect", role: .destructive) {
                                 lastFM.disconnect()
                             }
@@ -37,19 +38,19 @@ struct IntegrationsSettingsView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("You are not connected. Connect your Last.fm account to keep track of your listening history and show what you're playing in real-time.")
                                 .foregroundColor(.secondary)
-                            
+
                             if let token = webAuthToken {
-                                Text("Please authorize Valentine in your browser, then click continue.")
+                                Text("Please authorize Aries in your browser, then click continue.")
                                     .font(.caption)
                                     .foregroundColor(.orange)
-                                
+
                                 HStack {
                                     Button("Continue") {
                                         finishAuthentication(token: token)
                                     }
                                     .buttonStyle(.borderedProminent)
                                     .disabled(isConnecting)
-                                    
+
                                     Button("Cancel") {
                                         webAuthToken = nil
                                         isConnecting = false
@@ -63,7 +64,7 @@ struct IntegrationsSettingsView: View {
                                 .buttonStyle(.borderedProminent)
                                 .disabled(isConnecting)
                             }
-                            
+
                             if let error = errorMessage {
                                 Text(LocalizedStringKey(error))
                                     .font(.caption)
@@ -74,19 +75,48 @@ struct IntegrationsSettingsView: View {
                     }
                 }
             }
+
+            Section {
+                Toggle("Enable ListenBrainz Integration", isOn: $listenBrainz.isEnabled)
+            } header: {
+                Text("ListenBrainz")
+            } footer: {
+                Text("When enabled, Aries submits your listens to ListenBrainz using your user token.")
+            }
+
+            if listenBrainz.isEnabled {
+                Section("User Token") {
+                    SecureField("Paste your ListenBrainz token", text: $listenBrainz.userToken)
+                        .textFieldStyle(.roundedBorder)
+
+                    HStack {
+                        if listenBrainz.isConnected {
+                            Label("Token saved", systemImage: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                                .font(.caption)
+                        } else {
+                            Text("Find your token in your ListenBrainz profile settings.")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                        }
+                        Spacer()
+                        Link("Get token", destination: URL(string: "https://listenbrainz.org/settings/")!)
+                            .font(.caption)
+                    }
+                }
+            }
         }
         .formStyle(.grouped)
     }
-    
+
     private func startAuthentication() {
         isConnecting = true
         errorMessage = nil
-        
+
         Task {
             do {
                 let token = try await lastFM.getToken()
-                
-                // Open browser
+
                 DispatchQueue.main.async {
                     let apiKey = Secrets.lastFMApiKey
                     if let authURL = URL(string: "https://www.last.fm/api/auth/?api_key=\(apiKey)&token=\(token)") {
@@ -105,11 +135,11 @@ struct IntegrationsSettingsView: View {
             }
         }
     }
-    
+
     private func finishAuthentication(token: String) {
         isConnecting = true
         errorMessage = nil
-        
+
         Task {
             do {
                 try await lastFM.getSession(token: token)

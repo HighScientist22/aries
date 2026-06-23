@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="1">
-    <title>Valentine Installer</title>
+    <title>Aries Installer</title>
     <license file="License.txt"/>
-    <pkg-ref id="dev.jesuschapman.Valentine"/>
+    <pkg-ref id="dev.HighScientist22.Aries"/>
     <options customize="never" require-scripts="false" hostArchitectures="arm64"/>
     <choices-outline>
         <line choice="default">
-            <line choice="dev.jesuschapman.Valentine"/>
+            <line choice="dev.HighScientist22.Aries"/>
         </line>
     </choices-outline>
     <choice id="default"/>
-    <choice id="dev.jesuschapman.Valentine" visible="false">
-        <pkg-ref id="dev.jesuschapman.Valentine"/>
+    <choice id="dev.HighScientist22.Aries" visible="false">
+        <pkg-ref id="dev.HighScientist22.Aries"/>
     </choice>
-    <pkg-ref id="dev.jesuschapman.Valentine" version="1.2 - 003" onConclusion="none">Valentine-component.pkg</pkg-ref>
+    <pkg-ref id="dev.HighScientist22.Aries" version="1.0" onConclusion="none">Aries-component.pkg</pkg-ref>
 </installer-gui-script>

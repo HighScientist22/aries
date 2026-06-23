@@ -1,3 +1,11 @@
+//
+//  AudioEngine.swift
+//  Aries
+//
+//  Created by Jesús David Chapman Vélez on 16/06/26.
+//  Playback core reworked onto AVAudioEngine for equalizer and rate control.
+//
+
 import Foundation
 import AVFoundation
 import Combine
@@ -20,7 +28,7 @@ class AudioEngine: ObservableObject {
     @Published var showLyrics: Bool = false
     @Published var showLyricsEditor: Bool = false
     @Published var showMutagenInstaller: Bool = false
-    
+
     @Published var repeatMode: RepeatMode = .off
     @Published var shuffleMode: Bool = false
     @Published var isGlowEffectEnabled: Bool = false {
@@ -35,31 +43,69 @@ class AudioEngine: ObservableObject {
     }
     @Published var volume: Float = 1.0 {
         didSet {
-            player?.volume = volume
+            engine.mainMixerNode.outputVolume = volume
         }
     }
-    
+
+    @Published var playbackRate: Float = 1.0 {
+        didSet {
+            timePitch.rate = playbackRate
+            UserDefaults.standard.set(playbackRate, forKey: "playbackRate")
+            updateNowPlayingInfo()
+        }
+    }
+
+    @Published var equalizer = Equalizer()
+
     @Published var waveformPoints: [Float] = []
-    
-    private var player: AVPlayer?
-    private var timeObserver: Any?
-    private var endObserver: NSObjectProtocol?
+
+    private let engine = AVAudioEngine()
+    private let playerNode = AVAudioPlayerNode()
+    private let timePitch = AVAudioUnitTimePitch()
+    private let eqNode: AVAudioUnitEQ
+
+    private var currentFile: AVAudioFile?
+    private var currentFormat: AVAudioFormat?
+    private var sampleRate: Double = 44_100
+    private var frameLength: AVAudioFramePosition = 0
+
+    // Frame offset applied when resuming from a paused/seeked position. The
+    // player node's sampleTime resets to zero on every scheduleFile, so the
+    // played position is segmentStartFrame + (node sampleTime since start).
+    private var segmentStartFrame: AVAudioFramePosition = 0
+    private var isSegmentScheduled = false
+    // Incremented every time a segment is scheduled or playback is stopped, so
+    // completion callbacks from flushed/replaced segments can be ignored.
+    private var playbackGeneration = 0
+    private var displayLink: Timer?
+
+    // Library IDs aligned to `queue`, used to record recently-played tracks.
+    private var queueLibraryIDs: [UUID] = []
+    private weak var libraryStore: LibraryStore?
+
     private var userDefaultsObserver: NSObjectProtocol?
-    
     private var hasScrobbledCurrentTrack = false
     private var currentTrackStartTime: Int = 0
-    
+
     var currentTrack: Track? {
         guard let index = currentTrackIndex, queue.indices.contains(index) else { return nil }
         return queue[index]
     }
-    
+
     init() {
+        self.eqNode = AVAudioUnitEQ(numberOfBands: Equalizer.bandFrequencies.count)
+
         self.isGlowEffectEnabled = UserDefaults.standard.bool(forKey: "isGlowEffectEnabled")
         self.isNeonEffectEnabled = UserDefaults.standard.bool(forKey: "isNeonEffectEnabled")
-        setupAudioSession()
+        if let storedRate = UserDefaults.standard.object(forKey: "playbackRate") as? Float {
+            self.playbackRate = storedRate
+        }
+
+        configureEngine()
         setupRemoteCommandCenter()
-        
+        equalizer.load()
+        applyEqualizer()
+
         self.userDefaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self = self else { return }
@@ -70,18 +116,13 @@ class AudioEngine: ObservableObject {
             }
         }
     }
-    
+
     deinit {
-        if let observer = timeObserver {
-            player?.removeTimeObserver(observer)
-        }
-        if let endObserver = endObserver {
-            NotificationCenter.default.removeObserver(endObserver)
-        }
+        displayLink?.invalidate()
         if let defaultsObserver = userDefaultsObserver {
             NotificationCenter.default.removeObserver(defaultsObserver)
         }
-        
+
         let commandCenter = MPRemoteCommandCenter.shared()
         commandCenter.playCommand.removeTarget(nil)
         commandCenter.pauseCommand.removeTarget(nil)
@@ -90,38 +131,61 @@ class AudioEngine: ObservableObject {
         commandCenter.previousTrackCommand.removeTarget(nil)
         commandCenter.changePlaybackPositionCommand.removeTarget(nil)
     }
-    
-    private func setupAudioSession() {
+
+    private func configureEngine() {
+        timePitch.rate = playbackRate
+        timePitch.overlap = 8
+
+        engine.attach(playerNode)
+        engine.attach(timePitch)
+        engine.attach(eqNode)
+
+        // playerNode -> timePitch -> eq -> mainMixer
+        engine.connect(playerNode, to: timePitch, format: nil)
+        engine.connect(timePitch, to: eqNode, format: nil)
+        engine.connect(eqNode, to: engine.mainMixerNode, format: nil)
+
+        engine.mainMixerNode.outputVolume = volume
+        engine.prepare()
     }
-    
+
+    private func startEngineIfNeeded() {
+        guard !engine.isRunning else { return }
+        do {
+            try engine.start()
+        } catch {
+            print("Failed to start audio engine: \(error)")
+        }
+    }
+
     private func setupRemoteCommandCenter() {
         let commandCenter = MPRemoteCommandCenter.shared()
-        
-        commandCenter.playCommand.addTarget { [weak self] event in
+
+        commandCenter.playCommand.addTarget { [weak self] _ in
             Task { @MainActor [weak self] in self?.play() }
             return .success
         }
-        
-        commandCenter.pauseCommand.addTarget { [weak self] event in
+
+        commandCenter.pauseCommand.addTarget { [weak self] _ in
             Task { @MainActor [weak self] in self?.pause() }
             return .success
         }
-        
-        commandCenter.togglePlayPauseCommand.addTarget { [weak self] event in
+
+        commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
             Task { @MainActor [weak self] in self?.togglePlayback() }
             return .success
         }
-        
-        commandCenter.nextTrackCommand.addTarget { [weak self] event in
+
+        commandCenter.nextTrackCommand.addTarget { [weak self] _ in
             Task { @MainActor [weak self] in self?.nextTrack() }
             return .success
         }
-        
-        commandCenter.previousTrackCommand.addTarget { [weak self] event in
+
+        commandCenter.previousTrackCommand.addTarget { [weak self] _ in
             Task { @MainActor [weak self] in self?.previousTrack() }
             return .success
         }
-        
+
         commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let positionEvent = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
             let time = positionEvent.positionTime
@@ -129,10 +193,10 @@ class AudioEngine: ObservableObject {
             return .success
         }
     }
-    
+
     private func updateNowPlayingInfo() {
         var nowPlayingInfo = [String: Any]()
-        
+
         if let track = currentTrack {
             nowPlayingInfo[MPMediaItemPropertyTitle] = track.title
             nowPlayingInfo[MPMediaItemPropertyArtist] = track.artist
@@ -140,19 +204,19 @@ class AudioEngine: ObservableObject {
                 nowPlayingInfo[MPMediaItemPropertyAlbumTitle] = album
             }
             nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = duration
-            
+
             if let nsImage = track.nsImage {
                 let artwork = MPMediaItemArtwork(boundsSize: nsImage.size) { _ in nsImage }
                 nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
             }
         }
-        
+
         nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
-        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
-        
+        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? Double(playbackRate) : 0.0
+
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
     }
-    
+
     #if os(macOS)
     func showAddFileDialog() {
         let panel = NSOpenPanel()
@@ -164,7 +228,7 @@ class AudioEngine: ObservableObject {
             self.addTracks(panel.urls)
         }
     }
-    
+
     func showAddFolderDialog() {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
@@ -175,23 +239,56 @@ class AudioEngine: ObservableObject {
         }
     }
     #endif
-    
+
     func clearPlaylist() {
+        stopPlayback()
         self.queue.removeAll()
+        self.queueLibraryIDs.removeAll()
         self.currentTrackIndex = nil
-        self.player?.pause()
-        self.isPlaying = false
         self.currentTime = 0
         self.duration = 0
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
-    
+
+    // Replaces the queue with tracks resolved from the persistent library and
+    // starts playback at `startIndex`.
+    func playFromLibrary(_ libraryTracks: [LibraryTrack], startIndex: Int, store: LibraryStore) {
+        Task {
+            stopPlayback()
+            queue.removeAll()
+            queueLibraryIDs.removeAll()
+            currentTrackIndex = nil
+            self.libraryStore = store
+
+            for libTrack in libraryTracks {
+                guard let url = store.resolveURL(for: libTrack) else { continue }
+
+                var track = Track(url: url)
+                track.title = libTrack.title
+                track.artist = libTrack.artist
+                track.album = libTrack.album
+                track.duration = libTrack.duration
+                if let artURL = store.artworkURL(for: libTrack), let image = NSImage(contentsOf: artURL) {
+                    track.nsImage = image
+                    track.albumArt = Image(nsImage: image)
+                }
+                queue.append(track)
+                queueLibraryIDs.append(libTrack.id)
+            }
+
+            let target = queue.indices.contains(startIndex) ? startIndex : 0
+            if !queue.isEmpty {
+                playTrack(at: target)
+            }
+        }
+    }
+
     func addTracks(_ urls: [URL]) {
         Task {
             var audioURLs: [URL] = []
             let fileManager = FileManager.default
             let supportedExtensions = Set(["mp3", "m4a", "wav", "aac", "flac", "ogg", "aiff", "alac"])
-            
+
             for url in urls {
                 var isDirectory: ObjCBool = false
                 if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) {
@@ -209,7 +306,7 @@ class AudioEngine: ObservableObject {
                     }
                 }
             }
-            
+
             for url in audioURLs {
                 var track = Track(url: url)
                 await track.loadMetadata()
@@ -220,55 +317,40 @@ class AudioEngine: ObservableObject {
             }
         }
     }
-    
+
     func playTrack(at index: Int, autoPlay: Bool = true) {
         guard queue.indices.contains(index) else { return }
         let track = queue[index]
-        
-        player?.pause()
-        if let observer = timeObserver {
-            player?.removeTimeObserver(observer)
-            timeObserver = nil
+
+        stopPlayback()
+
+        do {
+            let file = try AVAudioFile(forReading: track.url)
+            currentFile = file
+            currentFormat = file.processingFormat
+            sampleRate = file.processingFormat.sampleRate
+            frameLength = file.length
+        } catch {
+            print("Failed to open \(track.url): \(error)")
+            return
         }
-        if let endObserver = endObserver {
-            NotificationCenter.default.removeObserver(endObserver)
-            self.endObserver = nil
-        }
-        
-        let playerItem = AVPlayerItem(url: track.url)
-        
-        endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: playerItem, queue: .main) { [weak self] _ in
-            Task { @MainActor in
-                self?.nextTrack(isAutomatic: true)
-            }
-        }
-        
-        player = AVPlayer(playerItem: playerItem)
-        player?.volume = volume
+
         currentTrackIndex = index
         duration = track.duration
-        
+        currentTime = 0
+        segmentStartFrame = 0
+
+        if queueLibraryIDs.indices.contains(index) {
+            libraryStore?.markPlayed(queueLibraryIDs[index])
+        }
+
         hasScrobbledCurrentTrack = false
         currentTrackStartTime = Int(Date().timeIntervalSince1970)
         LastFMService.shared.updateNowPlaying(track: track.title, artist: track.artist, album: track.album, duration: Int(track.duration))
-        
-        let interval = CMTime(seconds: 0.1, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
-        timeObserver = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            Task { @MainActor in
-                guard let self = self else { return }
-                self.currentTime = time.seconds
-                
-                if let currentTrack = self.currentTrack, self.duration > 30 && !self.hasScrobbledCurrentTrack {
-                    let scrobblePoint = min(self.duration / 2.0, 240.0) // 50% or 4 minutes
-                    if self.currentTime >= scrobblePoint {
-                        self.hasScrobbledCurrentTrack = true
-                        LastFMService.shared.scrobble(track: currentTrack.title, artist: currentTrack.artist, album: currentTrack.album, timestamp: self.currentTrackStartTime)
-                    }
-                }
-            }
-        }
-        
+        ListenBrainzService.shared.updateNowPlaying(track: track.title, artist: track.artist, album: track.album)
+
         generateWaveform(for: track.url)
+
         if autoPlay {
             play()
         } else {
@@ -276,7 +358,32 @@ class AudioEngine: ObservableObject {
             updateNowPlayingInfo()
         }
     }
-    
+
+    // Schedules the current file from `segmentStartFrame` to its end. Uses the
+    // .dataPlayedBack callback so completion fires only when audio has actually
+    // finished playing, not when the buffer is merely consumed by the renderer.
+    private func scheduleFromCurrentSegment() {
+        guard let file = currentFile else { return }
+        let startFrame = segmentStartFrame
+        let framesToPlay = AVAudioFrameCount(max(0, frameLength - startFrame))
+        guard framesToPlay > 0 else { return }
+
+        file.framePosition = startFrame
+        playbackGeneration += 1
+        let generation = playbackGeneration
+        isSegmentScheduled = true
+
+        playerNode.scheduleSegment(file, startingFrame: startFrame, frameCount: framesToPlay, at: nil, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                // Ignore completions from a segment we've since replaced (skip/seek/stop).
+                guard self.playbackGeneration == generation, self.isPlaying else { return }
+                self.isSegmentScheduled = false
+                self.nextTrack(isAutomatic: true)
+            }
+        }
+    }
+
     func togglePlayback() {
         if isPlaying {
             pause()
@@ -284,28 +391,42 @@ class AudioEngine: ObservableObject {
             play()
         }
     }
-    
+
     func play() {
-        player?.play()
+        guard currentFile != nil else { return }
+        startEngineIfNeeded()
+        if !isSegmentScheduled {
+            scheduleFromCurrentSegment()
+        }
+        playerNode.play()
         isPlaying = true
+        startDisplayLink()
         updateNowPlayingInfo()
     }
-    
+
     func pause() {
-        player?.pause()
+        playerNode.pause()
         isPlaying = false
+        stopDisplayLink()
         updateNowPlayingInfo()
     }
-    
+
+    private func stopPlayback() {
+        playerNode.stop()
+        isPlaying = false
+        isSegmentScheduled = false
+        stopDisplayLink()
+    }
+
     func nextTrack(isAutomatic: Bool = false) {
         guard let currentIndex = currentTrackIndex else { return }
-        
+
         if isAutomatic && repeatMode == .one {
-            repeatMode = .off
-            playTrack(at: currentIndex)
+            seek(to: 0)
+            play()
             return
         }
-        
+
         if shuffleMode {
             if queue.count > 1 {
                 var nextIndex = Int.random(in: 0..<queue.count)
@@ -313,63 +434,72 @@ class AudioEngine: ObservableObject {
                     nextIndex = Int.random(in: 0..<queue.count)
                 }
                 playTrack(at: nextIndex)
+            } else if repeatMode == .all {
+                playTrack(at: currentIndex)
             } else {
-                if repeatMode == .all {
-                    playTrack(at: currentIndex)
-                } else {
-                    pause()
-                    currentTime = 0
-                    player?.seek(to: .zero)
-                }
+                stopPlayback()
+                segmentStartFrame = 0
+                currentTime = 0
             }
             return
         }
-        
+
         if currentIndex + 1 < queue.count {
             playTrack(at: currentIndex + 1)
+        } else if repeatMode == .all {
+            playTrack(at: 0)
         } else {
-            if repeatMode == .all {
-                playTrack(at: 0)
-            } else {
-                pause()
-                currentTime = 0
-                player?.seek(to: .zero)
-            }
+            stopPlayback()
+            segmentStartFrame = 0
+            currentTime = 0
         }
     }
-    
+
     func previousTrack() {
         guard let currentIndex = currentTrackIndex else { return }
         if currentTime > 3.0 {
-            player?.seek(to: .zero)
-            currentTime = 0
+            seek(to: 0)
         } else if currentIndex > 0 {
             playTrack(at: currentIndex - 1)
         }
     }
-    
+
     func seek(to time: TimeInterval) {
-        player?.seek(to: CMTime(seconds: time, preferredTimescale: 1000))
-        currentTime = time
+        guard currentFile != nil else { return }
+        let clamped = max(0, min(time, duration))
+        let wasPlaying = isPlaying
+
+        playerNode.stop()
+        isSegmentScheduled = false
+        segmentStartFrame = AVAudioFramePosition(clamped * sampleRate)
+        currentTime = clamped
+
+        scheduleFromCurrentSegment()
+        if wasPlaying {
+            startEngineIfNeeded()
+            playerNode.play()
+            isPlaying = true
+            startDisplayLink()
+        }
         updateNowPlayingInfo()
     }
-    
+
     func removeTrack(at offsets: IndexSet) {
         queue.remove(atOffsets: offsets)
     }
-    
+
     func removeTracks(withIds ids: Set<UUID>) {
         let currentTrackId = currentTrack?.id
-        
+
         let indicesToRemove = queue.enumerated().compactMap { index, track in
             ids.contains(track.id) ? index : nil
         }
-        
+
         queue.remove(atOffsets: IndexSet(indicesToRemove))
-        
+
         if let currentId = currentTrackId {
             if ids.contains(currentId) {
-                pause()
+                stopPlayback()
                 currentTrackIndex = queue.isEmpty ? nil : 0
                 if !queue.isEmpty {
                     playTrack(at: 0)
@@ -379,32 +509,101 @@ class AudioEngine: ObservableObject {
             }
         }
     }
-    
+
+    // MARK: - Equalizer
+
+    func applyEqualizer() {
+        eqNode.globalGain = equalizer.isEnabled ? equalizer.preamp : 0
+        for (index, band) in eqNode.bands.enumerated() {
+            band.filterType = .parametric
+            band.frequency = Equalizer.bandFrequencies[index]
+            band.bandwidth = 0.5
+            band.bypass = !equalizer.isEnabled
+            band.gain = equalizer.isEnabled ? equalizer.gains[index] : 0
+        }
+    }
+
+    func setEqualizerBand(_ index: Int, gain: Float) {
+        guard equalizer.gains.indices.contains(index) else { return }
+        equalizer.gains[index] = gain
+        equalizer.activePreset = nil
+        equalizer.save()
+        applyEqualizer()
+    }
+
+    func setEqualizerEnabled(_ enabled: Bool) {
+        equalizer.isEnabled = enabled
+        equalizer.save()
+        applyEqualizer()
+    }
+
+    func applyEqualizerPreset(_ preset: EqualizerPreset) {
+        equalizer.gains = preset.gains
+        equalizer.activePreset = preset.id
+        equalizer.save()
+        applyEqualizer()
+    }
+
+    // MARK: - Position tracking
+
+    private func startDisplayLink() {
+        stopDisplayLink()
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.updatePlayhead() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        displayLink = timer
+    }
+
+    private func stopDisplayLink() {
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+
+    private func updatePlayhead() {
+        guard isPlaying,
+              let nodeTime = playerNode.lastRenderTime,
+              let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else { return }
+
+        let playedFrames = Double(playerTime.sampleTime)
+        let elapsed = Double(segmentStartFrame) / sampleRate + playedFrames / playerTime.sampleRate
+        currentTime = min(max(0, elapsed), duration)
+
+        if let currentTrack = currentTrack, duration > 30, !hasScrobbledCurrentTrack {
+            let scrobblePoint = min(duration / 2.0, 240.0)
+            if currentTime >= scrobblePoint {
+                hasScrobbledCurrentTrack = true
+                LastFMService.shared.scrobble(track: currentTrack.title, artist: currentTrack.artist, album: currentTrack.album, timestamp: currentTrackStartTime)
+                ListenBrainzService.shared.scrobble(track: currentTrack.title, artist: currentTrack.artist, album: currentTrack.album, timestamp: currentTrackStartTime)
+            }
+        }
+    }
+
     private func generateWaveform(for url: URL) {
         Task.detached {
             do {
                 let file = try AVAudioFile(forReading: url)
                 let format = file.processingFormat
                 let frameCount = AVAudioFrameCount(file.length)
-                
+
                 guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return }
                 try file.read(into: buffer)
-                
+
                 guard let floatChannelData = buffer.floatChannelData else { return }
-                
+
                 let channelCount = Int(format.channelCount)
                 let length = Int(buffer.frameLength)
-                
+
                 let targetSamples = 100
                 let samplesPerPoint = max(1, length / targetSamples)
-                
+
                 var points: [Float] = []
-                
+
                 for i in 0..<targetSamples {
                     let startIdx = i * samplesPerPoint
                     let endIdx = min(startIdx + samplesPerPoint, length)
                     var maxAmplitude: Float = 0
-                    
+
                     for j in startIdx..<endIdx {
                         for channel in 0..<channelCount {
                             let value = abs(floatChannelData[channel][j])
@@ -415,27 +614,27 @@ class AudioEngine: ObservableObject {
                     }
                     points.append(maxAmplitude)
                 }
-                
+
                 let overallMax = points.max() ?? 1.0
                 let normalized = points.map { $0 / overallMax }
-                
+
                 await MainActor.run {
                     self.waveformPoints = normalized
                 }
-                
+
             } catch {
                 print("Error generating waveform: \(error)")
             }
         }
     }
-    
+
     func updateCurrentTrackLyrics(with text: String) {
         guard let index = currentTrackIndex else { return }
         var track = queue[index]
         track.updateLyrics(from: text)
         queue[index] = track
     }
-    
+
     func checkAndShowLyricsEditor() {
         let path = MutagenInstallerService.mutagenTargetDirectory.appendingPathComponent("mutagen").path
         var isDir: ObjCBool = false

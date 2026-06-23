@@ -1,8 +1,9 @@
 //
-//  ValentineApp.swift
-//  Valentine
+//  AriesApp.swift
+//  Aries
 //
 //  Created by Jesús David Chapman Vélez on 16/06/26.
+//  Fork: Aries by the Aries contributors.
 //
 
 import SwiftUI
@@ -14,10 +15,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-struct ValentineApp: App {
+struct AriesApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @AppStorage("appTheme") private var appTheme = 0
-    
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -25,16 +26,16 @@ struct ValentineApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
         .commands {
-            ValentineCommands()
+            AriesCommands()
         }
-        
-        Window("About Valentine", id: "about") {
+
+        Window("About Aries", id: "about") {
             AboutView()
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
         .defaultSize(width: 650, height: 480)
-        
+
         Window("Settings", id: "settings") {
             SettingsView()
                 .preferredColorScheme(appTheme == 1 ? .light : (appTheme == 2 ? .dark : nil))
@@ -46,12 +47,14 @@ struct ValentineApp: App {
 
 struct RootView: View {
     @StateObject private var engine = AudioEngine()
+    @StateObject private var library = LibraryStore()
+    @StateObject private var theme = AlbumTheme()
     @AppStorage("isMiniPlayerMode") private var isMiniPlayerMode = false
     @AppStorage("appTheme") private var appTheme = 0
-    
+
     @AppStorage("lastNormalWidth") private var lastNormalWidth: Double = 900
     @AppStorage("lastNormalHeight") private var lastNormalHeight: Double = 600
-    
+
     var body: some View {
         Group {
             if isMiniPlayerMode {
@@ -59,6 +62,8 @@ struct RootView: View {
             } else {
                 ContentView()
                     .environmentObject(engine)
+                    .environmentObject(library)
+                    .environmentObject(theme)
             }
         }
         .animation(.easeInOut, value: isMiniPlayerMode)
@@ -66,6 +71,10 @@ struct RootView: View {
         .onAppear {
             updateTheme(theme: appTheme)
             configureWindow(forMiniPlayer: isMiniPlayerMode)
+            theme.update(from: engine.currentTrack?.nsImage, key: engine.currentTrack?.id.uuidString)
+        }
+        .onChange(of: engine.currentTrackIndex) { _, _ in
+            theme.update(from: engine.currentTrack?.nsImage, key: engine.currentTrack?.id.uuidString)
         }
         .onChange(of: appTheme) { _, newTheme in
             updateTheme(theme: newTheme)
@@ -88,7 +97,7 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .editLyrics)) { _ in engine.checkAndShowLyricsEditor() }
         .onReceive(NotificationCenter.default.publisher(for: .reinstallMutagen)) { _ in engine.showMutagenInstaller = true }
     }
-    
+
     private func updateTheme(theme: Int) {
         #if os(macOS)
         DispatchQueue.main.async {
@@ -102,7 +111,7 @@ struct RootView: View {
         }
         #endif
     }
-    
+
     private func configureWindow(forMiniPlayer: Bool) {
         #if os(macOS)
         DispatchQueue.main.async {
@@ -110,18 +119,18 @@ struct RootView: View {
                 if window.className == "NSWindow" || window.className.contains("SwiftUI") {
                     let id = window.identifier?.rawValue ?? ""
                     if id.contains("settings") || id.contains("about") { continue }
-                    
+
                     window.level = forMiniPlayer ? .floating : .normal
                     window.standardWindowButton(.closeButton)?.isHidden = forMiniPlayer
                     window.standardWindowButton(.miniaturizeButton)?.isHidden = forMiniPlayer
                     window.standardWindowButton(.zoomButton)?.isHidden = forMiniPlayer
                     window.isMovableByWindowBackground = true
-                    
+
                     if forMiniPlayer {
                         window.backgroundColor = .clear
                         window.isOpaque = false
                         window.hasShadow = true
-                        
+
                         var newFrame = window.frame
                         let oldHeight = newFrame.size.height
                         newFrame.size = NSSize(width: 480, height: 140)
@@ -130,13 +139,13 @@ struct RootView: View {
                     } else {
                         window.backgroundColor = .windowBackgroundColor
                         window.isOpaque = true
-                        
+
                         var newFrame = window.frame
                         let oldHeight = newFrame.size.height
-                        
+
                         let targetWidth = max(400, CGFloat(lastNormalWidth))
                         let targetHeight = max(540, CGFloat(lastNormalHeight))
-                        
+
                         newFrame.size = NSSize(width: targetWidth, height: targetHeight)
                         newFrame.origin.y -= (targetHeight - oldHeight)
                         window.setFrame(newFrame, display: true, animate: true)
@@ -148,7 +157,7 @@ struct RootView: View {
     }
 }
 
-struct ValentineCommands: Commands {
+struct AriesCommands: Commands {
     @AppStorage("isMiniPlayerMode") private var isMiniPlayerMode = false
     @Environment(\.openWindow) var openWindow
 
@@ -157,38 +166,36 @@ struct ValentineCommands: Commands {
             Button(action: {
                 openWindow(id: "about")
             }) {
-                Label("About Valentine", systemImage: "info.circle")
+                Label("About Aries", systemImage: "info.circle")
             }
         }
-        
+
         CommandGroup(replacing: .appSettings) {
             Button(action: { openWindow(id: "settings") }) {
                 Label("Settings...", systemImage: "gearshape")
             }
             .keyboardShortcut(",", modifiers: [.command])
         }
-        
 
-        
         CommandGroup(replacing: .newItem) {
             Button(action: { NotificationCenter.default.post(name: .addFile, object: nil) }) {
                 Label("Add File...", systemImage: "doc.badge.plus")
             }
             .keyboardShortcut("o", modifiers: [.command])
-            
+
             Button(action: { NotificationCenter.default.post(name: .addFolder, object: nil) }) {
                 Label("Add Folder...", systemImage: "folder.badge.plus")
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
-            
+
             Divider()
-            
+
             Button(action: { NotificationCenter.default.post(name: .clearPlaylist, object: nil) }) {
                 Label("Clear Playlist", systemImage: "trash")
             }
             .keyboardShortcut(.delete, modifiers: [.command])
         }
-        
+
         CommandGroup(after: .textEditing) {
             Divider()
             Button(action: { NotificationCenter.default.post(name: .editLyrics, object: nil) }) {
@@ -196,13 +203,12 @@ struct ValentineCommands: Commands {
             }
             .keyboardShortcut("e", modifiers: [.command])
         }
-        
+
         CommandGroup(replacing: .help) {
             Button(action: { NotificationCenter.default.post(name: .reinstallMutagen, object: nil) }) {
                 Label("Reinstall Mutagen", systemImage: "arrow.triangle.2.circlepath")
             }
         }
-        
 
         CommandGroup(after: .windowList) {
             Button(action: { isMiniPlayerMode.toggle() }) {
