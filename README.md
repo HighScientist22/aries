@@ -26,6 +26,17 @@ Aries is a fork of [Valentine](https://github.com/JesusChapman/valentine) by Jes
 - **[Mutagen](https://mutagen.readthedocs.io/)** — Python tagging library used to write lyrics into file metadata.
 - **[AVFoundation](https://developer.apple.com/av-foundation/)** — Apple's native audio framework driving playback, EQ, and waveform data.
 - **[Last.fm API](https://www.last.fm/api)** — optional scrobbling.
+- **[ListenBrainz](https://listenbrainz.org/)** — optional scrobbling via user token.
+
+## Download
+
+Grab the latest `Aries.dmg` from the [Releases](https://github.com/HighScientist22/aries/releases) page, open it, and drag **Aries** into your Applications folder.
+
+> **First launch:** Aries is signed with a personal development certificate, not a paid Apple Developer ID, so macOS Gatekeeper will warn you the first time. Either right-click the app and choose **Open**, or run:
+> ```
+> xattr -cr /Applications/Aries.app
+> ```
+> If the build stops launching after about a week, that's the development-certificate expiry — rebuild from source or grab a newer release.
 
 ## How to Compile
 
