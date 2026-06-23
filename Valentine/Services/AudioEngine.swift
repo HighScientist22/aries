@@ -28,6 +28,7 @@ class AudioEngine: ObservableObject {
     @Published var showLyrics: Bool = false
     @Published var showLyricsEditor: Bool = false
     @Published var showMutagenInstaller: Bool = false
+    @Published var isFetchingLyrics: Bool = false
 
     @Published var repeatMode: RepeatMode = .off
     @Published var shuffleMode: Bool = false
@@ -86,6 +87,7 @@ class AudioEngine: ObservableObject {
     private var userDefaultsObserver: NSObjectProtocol?
     private var hasScrobbledCurrentTrack = false
     private var currentTrackStartTime: Int = 0
+    private var lyricsFetchTask: Task<Void, Never>?
 
     var currentTrack: Track? {
         guard let index = currentTrackIndex, queue.indices.contains(index) else { return nil }
@@ -364,6 +366,8 @@ class AudioEngine: ObservableObject {
             isPlaying = false
             updateNowPlayingInfo()
         }
+
+        fetchLyricsIfNeeded(for: index)
     }
 
     // Schedules the current file from `segmentStartFrame` to its end. Uses the
@@ -640,6 +644,71 @@ class AudioEngine: ObservableObject {
         var track = queue[index]
         track.updateLyrics(from: text)
         queue[index] = track
+    }
+
+    private var autoFetchLyricsEnabled: Bool {
+        UserDefaults.standard.object(forKey: "autoFetchLyrics") as? Bool ?? true
+    }
+
+    private func fetchLyricsIfNeeded(for index: Int) {
+        lyricsFetchTask?.cancel()
+        lyricsFetchTask = Task { await ensureLyrics(for: index) }
+    }
+
+    private func ensureLyrics(for index: Int) async {
+        guard autoFetchLyricsEnabled else { return }
+        guard queue.indices.contains(index) else { return }
+
+        let trackID = queue[index].id
+        let artist = queue[index].artist
+        let title = queue[index].title
+        let album = queue[index].album
+        let trackDuration = queue[index].duration
+
+        await MainActor.run { isFetchingLyrics = true }
+        defer { Task { @MainActor in isFetchingLyrics = false } }
+
+        if queue[index].lyrics == nil {
+            var track = queue[index]
+            await track.loadMetadata()
+            await MainActor.run {
+                guard currentTrackIndex == index, queue[index].id == trackID else { return }
+                queue[index] = track
+            }
+        }
+
+        if let lyrics = await MainActor.run(body: { queue[index].lyrics }), !lyrics.isEmpty {
+            return
+        }
+
+        if let cached = LyricsCache.shared.lyrics(artist: artist, title: title) {
+            await MainActor.run {
+                guard currentTrackIndex == index, queue[index].id == trackID else { return }
+                updateCurrentTrackLyrics(with: cached)
+            }
+            return
+        }
+
+        guard !Task.isCancelled else { return }
+
+        do {
+            let fetched = try await LRCLibService.shared.searchLyrics(
+                trackName: title,
+                artistName: artist,
+                albumName: album,
+                duration: trackDuration > 0 ? trackDuration : nil
+            )
+            guard let fetched, !Task.isCancelled else { return }
+
+            LyricsCache.shared.store(artist: artist, title: title, lyrics: fetched)
+            await MainActor.run {
+                guard let currentIndex = currentTrackIndex,
+                      queue[currentIndex].id == trackID else { return }
+                updateCurrentTrackLyrics(with: fetched)
+            }
+        } catch {
+            print("Auto lyrics fetch failed for \(artist) - \(title): \(error)")
+        }
     }
 
     func checkAndShowLyricsEditor() {

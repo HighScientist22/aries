@@ -19,6 +19,7 @@ struct ContentView: View {
     @State private var wasWide = true
     @State private var windowSize: CGSize? = nil
     @State private var persistTask: Task<Void, Never>? = nil
+    @State private var presentedArtist: ArtistGroup? = nil
 
     @AppStorage("lastNormalWidth") private var lastNormalWidth: Double = 900
     @AppStorage("lastNormalHeight") private var lastNormalHeight: Double = 600
@@ -70,6 +71,27 @@ struct ContentView: View {
             }
             .animation(navAnimation, value: isHomeVisible)
             .background(backgroundLayer)
+            .overlay {
+                if let artist = presentedArtist {
+                    ArtistDetailView(
+                        artist: artist,
+                        albums: albums(forArtist: artist, in: groupAlbums(from: library.tracks)),
+                        engine: engine,
+                        library: library,
+                        onBack: {
+                            withAnimation(navAnimation) { presentedArtist = nil }
+                        }
+                    )
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
+            .animation(navAnimation, value: presentedArtist?.name)
+            .onReceive(NotificationCenter.default.publisher(for: .openArtistDetail)) { note in
+                guard let name = note.userInfo?["artistName"] as? String, !name.isEmpty else { return }
+                withAnimation(navAnimation) {
+                    presentedArtist = artistGroup(named: name, from: library.tracks)
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .navigation) {
                     Button(action: {

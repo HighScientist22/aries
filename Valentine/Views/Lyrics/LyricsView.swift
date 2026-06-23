@@ -80,13 +80,21 @@ struct LyricsView: View {
                 }
             } else {
                 VStack(spacing: 16) {
-                    Image(systemName: "music.mic")
-                        .font(.system(size: 64))
-                        .foregroundColor(.primary.opacity(0.3))
-                    Text("No Lyrics Available")
-                        .font(.title3)
-                        .fontWeight(.medium)
-                        .foregroundColor(.primary.opacity(0.5))
+                    if engine.isFetchingLyrics {
+                        ProgressView()
+                            .controlSize(.regular)
+                        Text("Fetching lyrics…")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Image(systemName: "music.mic")
+                            .font(.system(size: 64))
+                            .foregroundColor(.primary.opacity(0.3))
+                        Text("No Lyrics Available")
+                            .font(.title3)
+                            .fontWeight(.medium)
+                            .foregroundColor(.primary.opacity(0.5))
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

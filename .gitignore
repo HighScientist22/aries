@@ -1,3 +1,7 @@
 
-# Local Configuration Files
+# Local API keys — never commit this file
 Valentine/Config/Secrets.swift
+
+# Accidental Finder duplicates
+Valentine/Config/Secrets.example copy.swift
+**/Secrets.example copy.swift

@@ -57,7 +57,8 @@ open Aries.xcodeproj
 
 3. Configure the project:
    - Select your Apple Developer ID team in the project settings.
-   - **Last.fm (optional):** to enable scrobbling, copy `Valentine/Config/Secrets.example.swift` to `Secrets.swift`, uncomment it, and add your own [Last.fm API key](https://www.last.fm/api/account/create). `Secrets.swift` is gitignored and never committed.
+   - **Last.fm (optional):** duplicate `Valentine/Config/Secrets.example.swift` as `Secrets.swift` in the same folder, uncomment the struct, and add your [Last.fm API key](https://www.last.fm/api/account/create). `Secrets.swift` is gitignored — it never leaves your Mac or gets pushed to GitHub. Verify with: `git check-ignore Valentine/Config/Secrets.swift` (should print the path).
+   - **ListenBrainz (optional):** paste your token in the app under Settings → Integrations (saved in your Mac’s preferences, not in the repo).
 
 4. Build & run:
    - Select your Mac as the destination and press `Cmd + R`.

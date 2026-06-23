@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LyricsAppearanceView: View {
     @ObservedObject var settings = LyricsAppearanceManager.shared
+    @AppStorage("autoFetchLyrics") private var autoFetchLyrics = true
     
     @State private var previewIsDark = true
     @State private var previewNeon = false
@@ -84,6 +85,15 @@ struct LyricsAppearanceView: View {
             // SETTINGS SECTION
             ScrollView {
                 VStack(spacing: 24) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Toggle("Automatically fetch lyrics", isOn: $autoFetchLyrics)
+                        Text("When a track has no embedded lyrics, Aries searches LRCLib on playback and caches the result.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Divider()
+
                     Picker("Apply to:", selection: $applyMode) {
                         Text("Both Themes").tag(0)
                         Text(previewIsDark ? "Dark Theme Only" : "Light Theme Only").tag(1)

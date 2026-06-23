@@ -81,19 +81,38 @@ struct Track: Identifiable, Hashable {
             }
             
             if let lyricsText = foundLyricsText {
-                self.lyrics = parseLRC(lyricsText)
+                self.lyrics = Self.parseLyricsText(lyricsText, duration: duration)
             }
-            
+
         } catch {
             print("Failed to load metadata for \(url): \(error)")
         }
     }
-    
+
     mutating func updateLyrics(from text: String) {
-        self.lyrics = parseLRC(text)
+        self.lyrics = Self.parseLyricsText(text, duration: duration)
     }
-    
-    private func parseLRC(_ text: String) -> [LyricLine]? {
+
+    static func parseLyricsText(_ text: String, duration: TimeInterval) -> [LyricLine]? {
+        if let synced = parseLRC(text), !synced.isEmpty { return synced }
+
+        let lines = text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard !lines.isEmpty else { return nil }
+
+        if duration > 0, lines.count > 1 {
+            let spacing = duration / Double(lines.count)
+            return lines.enumerated().map { index, line in
+                LyricLine(time: spacing * Double(index), text: line)
+            }
+        }
+
+        return lines.map { LyricLine(time: 0, text: $0) }
+    }
+
+    private static func parseLRC(_ text: String) -> [LyricLine]? {
         var lines: [LyricLine] = []
         let pattern = "\\[(\\d{2}):(\\d{2})\\.(\\d{2,3})\\](.*)"
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return nil }

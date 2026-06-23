@@ -156,4 +156,80 @@ class LastFMService: ObservableObject {
             }
         }
     }
+
+    // MARK: - Metadata (read-only; API key only)
+
+    var hasMetadataAPI: Bool { !apiKey.isEmpty }
+
+    func fetchAlbumInfo(artist: String, album: String) async -> (summary: String?, tags: [String]) {
+        guard hasMetadataAPI else { return (nil, []) }
+        do {
+            let data = try await makeRequest(
+                method: "album.getInfo",
+                params: ["artist": artist, "album": album, "autocorrect": "1"],
+                requiresSignature: false
+            )
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let albumObj = json["album"] as? [String: Any] else { return (nil, []) }
+
+            let summary = (albumObj["wiki"] as? [String: Any])?["summary"] as? String
+            let tags = parseTags(from: albumObj["tags"])
+            return (cleanWiki(summary), tags)
+        } catch {
+            return (nil, [])
+        }
+    }
+
+    func fetchArtistInfo(name: String) async -> (summary: String?, tags: [String], similar: [String], imageURL: URL?) {
+        guard hasMetadataAPI else { return (nil, [], [], nil) }
+        do {
+            let data = try await makeRequest(
+                method: "artist.getInfo",
+                params: ["artist": name, "autocorrect": "1"],
+                requiresSignature: false
+            )
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let artistObj = json["artist"] as? [String: Any] else { return (nil, [], [], nil) }
+
+            let summary = (artistObj["bio"] as? [String: Any])?["summary"] as? String
+            let tags = parseTags(from: artistObj["tags"])
+            let similar = parseSimilar(from: artistObj["similar"])
+            let imageURL = parseArtistImage(from: artistObj["image"])
+            return (cleanWiki(summary), tags, similar, imageURL)
+        } catch {
+            return (nil, [], [], nil)
+        }
+    }
+
+    private func parseTags(from value: Any?) -> [String] {
+        guard let tags = value as? [String: Any],
+              let tagList = tags["tag"] as? [[String: Any]] else { return [] }
+        return tagList.compactMap { $0["name"] as? String }.prefix(8).map { $0 }
+    }
+
+    private func parseSimilar(from value: Any?) -> [String] {
+        guard let similar = value as? [String: Any],
+              let artists = similar["artist"] as? [[String: Any]] else { return [] }
+        return artists.compactMap { $0["name"] as? String }.prefix(8).map { $0 }
+    }
+
+    private func parseArtistImage(from value: Any?) -> URL? {
+        guard let images = value as? [[String: Any]] else { return nil }
+        let preferred = ["extralarge", "large", "medium"]
+        for size in preferred {
+            if let urlString = images.first(where: { ($0["size"] as? String) == size })?["#text"] as? String,
+               let url = URL(string: urlString), !urlString.isEmpty {
+                return url
+            }
+        }
+        return nil
+    }
+
+    private func cleanWiki(_ text: String?) -> String? {
+        guard var text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        if let range = text.range(of: "<a href") {
+            text = String(text[..<range.lowerBound])
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }

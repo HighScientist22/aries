@@ -65,10 +65,27 @@ struct PlayerView: View {
                     .foregroundColor(.primary)
                     .lineLimit(1)
 
-                Text(engine.currentTrack?.artist ?? "Unknown Artist")
-                    .font(.body)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
+                if let artist = engine.currentTrack?.artist, !artist.isEmpty {
+                    Button {
+                        NotificationCenter.default.post(
+                            name: .openArtistDetail,
+                            object: nil,
+                            userInfo: ["artistName": artist]
+                        )
+                    } label: {
+                        Text(artist)
+                            .font(.body)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
+                    .help("View Artist")
+                } else {
+                    Text("Unknown Artist")
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
 
                 if let album = engine.currentTrack?.album, !album.isEmpty {
                     Text(album)

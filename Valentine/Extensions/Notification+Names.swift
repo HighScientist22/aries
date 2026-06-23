@@ -6,4 +6,5 @@ extension Notification.Name {
     static let clearPlaylist = Notification.Name("ClearPlaylist")
     static let editLyrics = Notification.Name("EditLyrics")
     static let reinstallMutagen = Notification.Name("ReinstallMutagen")
+    static let openArtistDetail = Notification.Name("OpenArtistDetail")
 }
