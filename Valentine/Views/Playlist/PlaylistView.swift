@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct PlaylistView: View {
     @ObservedObject var engine: AudioEngine
@@ -7,6 +8,7 @@ struct PlaylistView: View {
     @State private var isSearchVisible = false
     @State private var isSelectionMode = false
     @State private var selectedTracks = Set<UUID>()
+    @State private var cachedQueueGreeting: String = ""
     
     var filteredTracks: [(Int, Track)] {
         let enumerated = Array(engine.queue.enumerated())
@@ -19,9 +21,48 @@ struct PlaylistView: View {
             }
         }
     }
+
+    private func sidebarGreeting() -> String {
+        if let custom = UserDefaults.standard.string(forKey: "customGreeting"), !custom.trimmingCharacters(in: .whitespaces).isEmpty {
+            return custom
+        }
+        let hour = Calendar.current.component(.hour, from: Date())
+        let timeGreeting: String
+        switch hour {
+        case 5..<12: timeGreeting = "Morning"
+        case 12..<18: timeGreeting = "Afternoon"
+        default: timeGreeting = "Evening"
+        }
+        let fullName = NSFullUserName()
+        let first = fullName.split(separator: " ").first.map(String.init) ?? fullName
+        return "\(timeGreeting), \(first)"
+    }
     
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+     var body: some View {
+         VStack(alignment: .leading, spacing: 0) {
+             // Sidebar greeting (compact, styled differently)
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(cachedQueueGreeting.isEmpty ? sidebarGreeting() : cachedQueueGreeting)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.accentColor)
+                    Text("Your queue")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Button(action: {
+                    UserDefaults.standard.set(SettingsTab.general.rawValue, forKey: "settingsOpenTab")
+                    NotificationCenter.default.post(name: .openSettings, object: nil, userInfo: ["tab": SettingsTab.general.rawValue])
+                }) {
+                    Image(systemName: "pencil")
+                }
+                .buttonStyle(.plain)
+                .help("Edit Greeting")
+            }
+            .padding(.horizontal)
+            .padding(.top, 8)
+
             HStack {
                 if !isSearchVisible {
                     VStack(alignment: .leading, spacing: 2) {
@@ -199,6 +240,11 @@ struct PlaylistView: View {
                     .padding(.horizontal, 8)
                     .padding(.bottom, 16)
                 }
+            }
+        }
+        .onAppear {
+            if cachedQueueGreeting.isEmpty {
+                cachedQueueGreeting = sidebarGreeting()
             }
         }
     }

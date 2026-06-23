@@ -18,10 +18,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 struct AriesApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @AppStorage("appTheme") private var appTheme = 0
+    @StateObject private var engine = AudioEngine()
+    @StateObject private var library = LibraryStore()
+    @StateObject private var theme = AlbumTheme()
 
     var body: some Scene {
         WindowGroup {
             RootView()
+                .environmentObject(engine)
+                .environmentObject(library)
+                .environmentObject(theme)
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
@@ -38,6 +44,7 @@ struct AriesApp: App {
 
         Window("Settings", id: "settings") {
             SettingsView()
+                .environmentObject(library)
                 .preferredColorScheme(appTheme == 1 ? .light : (appTheme == 2 ? .dark : nil))
         }
         .windowStyle(.hiddenTitleBar)
@@ -46,9 +53,10 @@ struct AriesApp: App {
 }
 
 struct RootView: View {
-    @StateObject private var engine = AudioEngine()
-    @StateObject private var library = LibraryStore()
-    @StateObject private var theme = AlbumTheme()
+    @EnvironmentObject var engine: AudioEngine
+    @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var theme: AlbumTheme
+    @Environment(\.openWindow) var openWindow
     @AppStorage("isMiniPlayerMode") private var isMiniPlayerMode = false
     @AppStorage("appTheme") private var appTheme = 0
 
@@ -96,6 +104,11 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .clearPlaylist)) { _ in engine.clearPlaylist() }
         .onReceive(NotificationCenter.default.publisher(for: .editLyrics)) { _ in engine.checkAndShowLyricsEditor() }
         .onReceive(NotificationCenter.default.publisher(for: .reinstallMutagen)) { _ in engine.showMutagenInstaller = true }
+        .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { notification in
+            // If a tab was specified, it will be written to UserDefaults by the
+            // sender; simply open the settings window.
+            openWindow(id: "settings")
+        }
     }
 
     private func updateTheme(theme: Int) {

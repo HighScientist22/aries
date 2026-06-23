@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct MiniPlayerView: View {
     @ObservedObject var engine: AudioEngine
@@ -6,6 +7,7 @@ struct MiniPlayerView: View {
     @AppStorage("miniPlayerGlassMode") private var miniPlayerGlassMode = 0
     @Environment(\.colorScheme) var colorScheme
     @ObservedObject var appearance = LyricsAppearanceManager.shared
+    @State private var cachedMiniGreeting: String = ""
     
     private var activeLyricLines: (current: String?, next: String?) {
         guard let lyrics = engine.currentTrack?.lyrics else { return (nil, nil) }
@@ -27,9 +29,49 @@ struct MiniPlayerView: View {
         let seconds = Int(time) % 60
         return String(format: "%d:%02d", minutes, seconds)
     }
+
+    private func greetingText() -> String {
+        if let custom = UserDefaults.standard.string(forKey: "customGreeting"), !custom.trimmingCharacters(in: .whitespaces).isEmpty {
+            return custom
+        }
+        let hour = Calendar.current.component(.hour, from: Date())
+        let timeGreeting: String
+        switch hour {
+        case 5..<12: timeGreeting = "Good morning"
+        case 12..<18: timeGreeting = "Good afternoon"
+        default: timeGreeting = "Good evening"
+        }
+        let fullName = NSFullUserName()
+        let first = fullName.split(separator: " ").first.map(String.init) ?? fullName
+        return "\(timeGreeting), \(first)"
+    }
     
     var body: some View {
         VStack(spacing: 0) {
+            if engine.currentTrack == nil {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(cachedMiniGreeting.isEmpty ? greetingText() : cachedMiniGreeting)
+                            .font(.title3.weight(.semibold))
+                            .foregroundColor(.accentColor)
+                            .lineLimit(1)
+                        Text("Welcome to Aries")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Button(action: {
+                        UserDefaults.standard.set(SettingsTab.general.rawValue, forKey: "settingsOpenTab")
+                        NotificationCenter.default.post(name: .openSettings, object: nil, userInfo: ["tab": SettingsTab.general.rawValue])
+                    }) {
+                        Image(systemName: "pencil")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Edit Greeting")
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+            }
             HStack(spacing: 20) {
                 if let art = engine.currentTrack?.albumArt {
                     art
@@ -188,7 +230,12 @@ struct MiniPlayerView: View {
                     .stroke(Color.primary.opacity(0.15), lineWidth: 1)
                     .blendMode(.overlay)
             )
-            .ignoresSafeArea()
-        )
+             .ignoresSafeArea()
+         )
+        .onAppear {
+            if cachedMiniGreeting.isEmpty {
+                cachedMiniGreeting = greetingText()
+            }
+        }
     }
 }

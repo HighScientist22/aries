@@ -1,0 +1,59 @@
+import SwiftUI
+
+struct LibrarySettingsView: View {
+    @EnvironmentObject var library: LibraryStore
+    @AppStorage("scanOnLaunch") private var scanOnLaunch: Bool = true
+
+    var body: some View {
+        Form {
+            Section(header: Text("Library Scanning")) {
+                Toggle("Scan for new music on launch", isOn: $scanOnLaunch)
+                Text("When enabled the app will scan configured folders on startup and watch them for changes.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Section(header: Text("Watched Folders")) {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(library.watchedFolders, id: \ .self) { url in
+                        HStack {
+                            Text(url.lastPathComponent)
+                                .lineLimit(1)
+                            Spacer()
+                            Button(role: .destructive) {
+                                library.removeWatchedFolder(url)
+                            } label: {
+                                Label("Remove", systemImage: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+
+                    Button(action: addFolder) {
+                        Label("Add Folder…", systemImage: "folder.badge.plus")
+                    }
+                    .padding(.top, 6)
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func addFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            library.addWatchedFolder(url)
+        }
+    }
+}
+
+struct LibrarySettingsView_Previews: PreviewProvider {
+    static var previews: some View {
+        LibrarySettingsView()
+            .environmentObject(LibraryStore())
+            .frame(width: 600, height: 400)
+    }
+}

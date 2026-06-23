@@ -113,6 +113,13 @@ class AudioEngine: ObservableObject {
                 let newNeon = UserDefaults.standard.bool(forKey: "isNeonEffectEnabled")
                 if self.isGlowEffectEnabled != newGlow { self.isGlowEffectEnabled = newGlow }
                 if self.isNeonEffectEnabled != newNeon { self.isNeonEffectEnabled = newNeon }
+                // Reload equalizer settings from UserDefaults so the settings
+                // window can modify them without holding a reference to the
+                // engine. `equalizer.load()` updates the model from defaults.
+                let previousEnabled = self.equalizer.isEnabled
+                self.equalizer.load()
+                // If equalizer state changed, apply to the audio graph.
+                self.applyEqualizer()
             }
         }
     }
