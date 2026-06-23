@@ -98,17 +98,15 @@ class LibraryStore: ObservableObject {
 
     private func recomputeGroups() {
         let snapshot = tracks
-        Task.detached(priority: .utility) {
-            let albums = groupAlbums(from: snapshot)
-            let artists = groupArtists(from: snapshot)
-            let genres = groupGenres(from: snapshot)
-            let years = groupYears(from: snapshot)
-            await MainActor.run {
-                self.albumGroups = albums
-                self.artistGroups = artists
-                self.genreGroups = genres
-                self.yearGroups = years
-            }
+        Task(priority: .userInitiated) {
+            async let albums = Task.detached(priority: .userInitiated) { groupAlbums(from: snapshot) }.value
+            async let artists = Task.detached(priority: .userInitiated) { groupArtists(from: snapshot) }.value
+            async let genres = Task.detached(priority: .userInitiated) { groupGenres(from: snapshot) }.value
+            async let years = Task.detached(priority: .userInitiated) { groupYears(from: snapshot) }.value
+            albumGroups = await albums
+            artistGroups = await artists
+            genreGroups = await genres
+            yearGroups = await years
         }
     }
 

@@ -132,8 +132,8 @@ class AudioEngine: ObservableObject {
         applyEqualizer()
 
         self.userDefaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in
-                guard let self = self else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
                 let newGlow = UserDefaults.standard.bool(forKey: "isGlowEffectEnabled")
                 let newNeon = UserDefaults.standard.bool(forKey: "isNeonEffectEnabled")
                 if self.isGlowEffectEnabled != newGlow { self.isGlowEffectEnabled = newGlow }
@@ -141,9 +141,7 @@ class AudioEngine: ObservableObject {
                 // Reload equalizer settings from UserDefaults so the settings
                 // window can modify them without holding a reference to the
                 // engine. `equalizer.load()` updates the model from defaults.
-                let previousEnabled = self.equalizer.isEnabled
                 self.equalizer.load()
-                // If equalizer state changed, apply to the audio graph.
                 self.applyEqualizer()
             }
         }
@@ -1125,7 +1123,11 @@ class AudioEngine: ObservableObject {
         let trackDuration = queue[index].duration
 
         await MainActor.run { isFetchingLyrics = true }
-        defer { Task { @MainActor in isFetchingLyrics = false } }
+        defer {
+            Task { @MainActor [weak self] in
+                self?.isFetchingLyrics = false
+            }
+        }
 
         if queue[index].lyrics == nil {
             var track = queue[index]

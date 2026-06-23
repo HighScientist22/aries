@@ -5,7 +5,7 @@
 
 import Foundation
 
-struct EnrichedAlbumDetail: Codable, Equatable {
+nonisolated struct EnrichedAlbumDetail: Codable, Equatable, Sendable {
     let title: String
     let artist: String
     var releaseDate: String?
@@ -23,7 +23,7 @@ struct EnrichedAlbumDetail: Codable, Equatable {
     }
 }
 
-struct EnrichedArtistDetail: Codable, Equatable {
+nonisolated struct EnrichedArtistDetail: Codable, Equatable, Sendable {
     let name: String
     var summary: String?
     var tags: [String]

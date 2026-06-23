@@ -31,7 +31,7 @@ struct NamedListeningStat: Identifiable, Hashable {
     let listenSeconds: TimeInterval
 }
 
-func splitGenreTags(from raw: String?) -> [String] {
+nonisolated func splitGenreTags(from raw: String?) -> [String] {
     guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
         return []
     }

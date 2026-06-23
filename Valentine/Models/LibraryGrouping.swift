@@ -5,7 +5,7 @@
 
 import Foundation
 
-struct AlbumGroup: Identifiable, Hashable {
+nonisolated struct AlbumGroup: Identifiable, Hashable, Sendable {
     let title: String
     let artist: String
     let artworkFile: String?
@@ -13,26 +13,26 @@ struct AlbumGroup: Identifiable, Hashable {
     var id: String { "\(title)|\(artist)" }
 }
 
-struct ArtistGroup: Identifiable, Hashable {
+nonisolated struct ArtistGroup: Identifiable, Hashable, Sendable {
     let name: String
     let artworkFile: String?
     let tracks: [LibraryTrack]
     var id: String { name }
 }
 
-struct GenreGroup: Identifiable, Hashable {
+nonisolated struct GenreGroup: Identifiable, Hashable, Sendable {
     let name: String
     let tracks: [LibraryTrack]
     var id: String { name }
 }
 
-struct YearGroup: Identifiable, Hashable {
+nonisolated struct YearGroup: Identifiable, Hashable, Sendable {
     let year: Int
     let tracks: [LibraryTrack]
     var id: Int { year }
 }
 
-func groupAlbums(from tracks: [LibraryTrack]) -> [AlbumGroup] {
+nonisolated func groupAlbums(from tracks: [LibraryTrack]) -> [AlbumGroup] {
     let grouped = Dictionary(grouping: tracks) { track in
         "\(track.album ?? track.title)|\(track.albumArtist)"
     }
@@ -49,7 +49,7 @@ func groupAlbums(from tracks: [LibraryTrack]) -> [AlbumGroup] {
     .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
 }
 
-func groupArtists(from tracks: [LibraryTrack]) -> [ArtistGroup] {
+nonisolated func groupArtists(from tracks: [LibraryTrack]) -> [ArtistGroup] {
     let grouped = Dictionary(grouping: tracks) { $0.albumArtist }
     return grouped.map { name, artistTracks in
         ArtistGroup(
@@ -61,7 +61,7 @@ func groupArtists(from tracks: [LibraryTrack]) -> [ArtistGroup] {
     .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 }
 
-func groupGenres(from tracks: [LibraryTrack]) -> [GenreGroup] {
+nonisolated func groupGenres(from tracks: [LibraryTrack]) -> [GenreGroup] {
     var grouped: [String: [LibraryTrack]] = [:]
     for track in tracks {
         let tags = splitGenreTags(from: track.genre)
@@ -76,7 +76,7 @@ func groupGenres(from tracks: [LibraryTrack]) -> [GenreGroup] {
     .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 }
 
-func groupYears(from tracks: [LibraryTrack]) -> [YearGroup] {
+nonisolated func groupYears(from tracks: [LibraryTrack]) -> [YearGroup] {
     let withYears = tracks.compactMap { track -> (Int, LibraryTrack)? in
         guard let year = track.year else { return nil }
         return (year, track)
@@ -117,7 +117,7 @@ func albumGroup(for track: LibraryTrack, in tracks: [LibraryTrack]) -> AlbumGrou
     )
 }
 
-func sortTracksForAlbum(_ lhs: LibraryTrack, _ rhs: LibraryTrack) -> Bool {
+nonisolated func sortTracksForAlbum(_ lhs: LibraryTrack, _ rhs: LibraryTrack) -> Bool {
     if let leftDisc = lhs.discNumber, let rightDisc = rhs.discNumber, leftDisc != rightDisc {
         return leftDisc < rightDisc
     }

@@ -18,7 +18,11 @@ actor MetadataService {
         let base = support.appendingPathComponent("Aries", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         cacheURL = base.appendingPathComponent("metadata-cache.json")
-        load()
+        if let data = try? Data(contentsOf: cacheURL),
+           let payload = try? JSONDecoder().decode(CachePayload.self, from: data) {
+            albumCache = payload.albums
+            artistCache = payload.artists
+        }
     }
 
     func albumDetail(for album: AlbumGroup, libraryArtwork: URL?) async -> EnrichedAlbumDetail {
@@ -77,13 +81,6 @@ actor MetadataService {
     private struct CachePayload: Codable {
         var albums: [String: EnrichedAlbumDetail]
         var artists: [String: EnrichedArtistDetail]
-    }
-
-    private func load() {
-        guard let data = try? Data(contentsOf: cacheURL),
-              let payload = try? JSONDecoder().decode(CachePayload.self, from: data) else { return }
-        albumCache = payload.albums
-        artistCache = payload.artists
     }
 
     private func scheduleSave() {

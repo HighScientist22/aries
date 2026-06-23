@@ -8,7 +8,7 @@ import Foundation
 // A persistable record of a track in the user's library. Unlike `Track`, this
 // survives relaunches: the file is referenced by a bookmark and artwork is
 // cached to disk by `artworkFile` rather than held in memory.
-struct LibraryTrack: Codable, Identifiable, Hashable {
+nonisolated struct LibraryTrack: Codable, Identifiable, Hashable, Sendable {
     let id: UUID
     var bookmark: Data
     var title: String

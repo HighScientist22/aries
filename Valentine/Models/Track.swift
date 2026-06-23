@@ -118,7 +118,7 @@ struct Track: Identifiable, Hashable {
     }
 
     private static func parseIntMetadata(_ item: AVMetadataItem) async -> Int? {
-        if let number = try? await item.load(.numberValue) as? NSNumber {
+        if let number = try? await item.load(.numberValue) {
             return number.intValue
         }
         if let string = try? await item.load(.stringValue), let value = Int(string) {
