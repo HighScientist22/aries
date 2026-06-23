@@ -23,66 +23,75 @@ struct ContentView: View {
     @AppStorage("lastNormalWidth") private var lastNormalWidth: Double = 900
     @AppStorage("lastNormalHeight") private var lastNormalHeight: Double = 600
 
+    private let navAnimation = Animation.spring(response: 0.46, dampingFraction: 0.88, blendDuration: 0.1)
+
+    private var isLibraryEmpty: Bool {
+        engine.queue.isEmpty && library.tracks.isEmpty
+    }
+
+    private var isHomeVisible: Bool {
+        showHome || engine.queue.isEmpty
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let currentWidth = geometry.size.width
             let isWide = currentWidth > 600
 
-            Group {
-                if engine.queue.isEmpty && library.tracks.isEmpty {
+            ZStack {
+                if isLibraryEmpty {
                     emptyStateView
-                } else if showHome || engine.queue.isEmpty {
-                    HomeView(engine: engine, library: library)
+                        .transition(.opacity)
                 } else {
-                    HStack(spacing: 0) {
-                        if isPlaylistVisible {
-                            PlaylistView(engine: engine)
-                                .frame(minWidth: isWide ? 280 : nil,
-                                       idealWidth: isWide ? 280 : nil,
-                                       maxWidth: isWide ? 280 : .infinity,
-                                       maxHeight: .infinity)
-                                .background(Color.black.opacity(0.2))
-                                .transition(.asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .leading)))
-                        }
-
-                        if isWide || !isPlaylistVisible {
-                            PlayerView(
-                                engine: engine,
-                                togglePlaylist: {
-                                    withAnimation(.spring()) {
-                                        isPlaylistVisible.toggle()
-                                    }
-                                },
-                                isPlaylistVisible: isPlaylistVisible,
-                                showToggle: !isWide
-                            )
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)))
-                        }
+                    if !engine.queue.isEmpty {
+                        playerLayout(isWide: isWide)
+                            .opacity(isHomeVisible ? 0 : 1)
+                            .scaleEffect(isHomeVisible ? 0.97 : 1, anchor: .center)
+                            .offset(x: isHomeVisible ? 28 : 0)
+                            .allowsHitTesting(!isHomeVisible)
                     }
+
+                    HomeView(engine: engine, library: library)
+                        .opacity(isHomeVisible ? 1 : 0)
+                        .scaleEffect(isHomeVisible ? 1 : 0.97, anchor: .center)
+                        .offset(x: isHomeVisible ? 0 : -28)
+                        .allowsHitTesting(isHomeVisible)
+                        .safeAreaInset(edge: .bottom, spacing: 12) {
+                            if isHomeVisible, engine.currentTrack != nil {
+                                HomeNowPlayingBar(engine: engine, accent: theme.accent) {
+                                    withAnimation(navAnimation) { showHome = false }
+                                }
+                                .padding(.horizontal, 24)
+                                .padding(.bottom, 8)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                            }
+                        }
                 }
             }
+            .animation(navAnimation, value: isHomeVisible)
             .background(backgroundLayer)
             .toolbar {
                 ToolbarItem(placement: .navigation) {
                     Button(action: {
-                        withAnimation(.spring()) {
+                        withAnimation(navAnimation) {
                             isPlaylistVisible.toggle()
                         }
                     }) {
                         Image(systemName: "sidebar.left")
                     }
+                    .disabled(isHomeVisible)
                 }
                 ToolbarItem(placement: .navigation) {
                     Button(action: {
-                        withAnimation(.spring()) {
+                        withAnimation(navAnimation) {
                             showHome.toggle()
                         }
                     }) {
-                        Image(systemName: showHome ? "play.square.stack" : "square.grid.2x2")
+                        Image(systemName: isHomeVisible ? "play.square.stack" : "square.grid.2x2")
                     }
                     .disabled(engine.queue.isEmpty)
-                    .help(showHome ? "Show Player" : "Show Library")
+                    .help(isHomeVisible ? "Show Player" : "Show Library")
+                    .contentTransition(.symbolEffect(.replace))
                 }
             }
             .toolbarBackground(.hidden, for: .windowToolbar)
@@ -94,15 +103,47 @@ struct ContentView: View {
                 let newIsWide = newSize.width >= 600
                 if newIsWide != wasWide {
                     wasWide = newIsWide
-                    withAnimation(.spring()) {
+                    withAnimation(navAnimation) {
                         isPlaylistVisible = newIsWide
                     }
                 }
                 persistWindowSize(newSize)
             }
+            .onChange(of: engine.currentTrackIndex) { _, newIndex in
+                guard newIndex != nil, isHomeVisible, !engine.queue.isEmpty else { return }
+                withAnimation(navAnimation) { showHome = false }
+            }
         }
         .frame(minWidth: 400, minHeight: 540)
         .tint(theme.accent)
+    }
+
+    @ViewBuilder
+    private func playerLayout(isWide: Bool) -> some View {
+        HStack(spacing: 0) {
+            if isPlaylistVisible {
+                PlaylistView(engine: engine)
+                    .frame(minWidth: isWide ? 280 : nil,
+                           idealWidth: isWide ? 280 : nil,
+                           maxWidth: isWide ? 280 : .infinity,
+                           maxHeight: .infinity)
+                    .background(Color.black.opacity(0.2))
+            }
+
+            if isWide || !isPlaylistVisible {
+                PlayerView(
+                    engine: engine,
+                    togglePlaylist: {
+                        withAnimation(navAnimation) {
+                            isPlaylistVisible.toggle()
+                        }
+                    },
+                    isPlaylistVisible: isPlaylistVisible,
+                    showToggle: !isWide
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
     }
 
     private func persistWindowSize(_ size: CGSize) {
@@ -147,7 +188,7 @@ struct ContentView: View {
         if let art = engine.currentTrack?.albumArt {
             return art
         }
-        if showHome || engine.queue.isEmpty,
+        if isHomeVisible,
            let hero = library.recentlyPlayed.first ?? library.tracks.first,
            let url = library.artworkURL(for: hero),
            let nsImage = NSImage(contentsOf: url) {
@@ -289,5 +330,69 @@ struct WindowSizePreferenceKey: PreferenceKey {
     static var defaultValue: CGSize = .zero
     static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
         value = nextValue()
+    }
+}
+
+// Compact bar shown on Home when a queue is active — tap to return to the player.
+private struct HomeNowPlayingBar: View {
+    @ObservedObject var engine: AudioEngine
+    let accent: Color
+    let onExpand: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 14) {
+            if let art = engine.currentTrack?.albumArt {
+                art
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 48, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+
+            Button(action: onExpand) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(engine.currentTrack?.title ?? "")
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text(engine.currentTrack?.artist ?? "")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                engine.togglePlayback()
+            } label: {
+                Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.title3)
+                    .frame(width: 36, height: 36)
+                    .background(accent.opacity(0.85), in: Circle())
+                    .foregroundStyle(.white)
+            }
+            .buttonStyle(.plain)
+
+            Button(action: onExpand) {
+                Image(systemName: "chevron.up")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(.white.opacity(isHovered ? 0.18 : 0.08), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
+        .scaleEffect(isHovered ? 1.01 : 1)
+        .animation(.spring(response: 0.28, dampingFraction: 0.75), value: isHovered)
+        .onHover { isHovered = $0 }
     }
 }
