@@ -3,6 +3,8 @@ import AppKit
 
 struct MiniPlayerView: View {
     @ObservedObject var engine: AudioEngine
+    @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var theme: AlbumTheme
     @EnvironmentObject var navigation: AppNavigation
     @State private var showMiniLyrics = false
     @AppStorage("miniPlayerGlassMode") private var miniPlayerGlassMode = 0
@@ -108,6 +110,15 @@ struct MiniPlayerView: View {
                         Spacer(minLength: 16)
                         
                         HStack(spacing: 12) {
+                            if let libraryTrack = currentLibraryTrack {
+                                FavoriteHeartButton(
+                                    isFavorite: library.isFavorite(track: libraryTrack),
+                                    accent: theme.accent
+                                ) {
+                                    library.toggleFavorite(track: libraryTrack)
+                                }
+                            }
+
                             Button(action: { engine.previousTrack() }) {
                                 Image(systemName: "backward.fill")
                                     .font(.system(size: 14))
@@ -237,5 +248,10 @@ struct MiniPlayerView: View {
                 cachedMiniGreeting = greetingText()
             }
         }
+    }
+
+    private var currentLibraryTrack: LibraryTrack? {
+        guard let id = engine.currentLibraryTrackID else { return nil }
+        return library.tracks.first { $0.id == id }
     }
 }

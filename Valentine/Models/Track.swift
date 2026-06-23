@@ -22,6 +22,7 @@ struct Track: Identifiable, Hashable {
     var year: Int?
     var trackNumber: Int?
     var discNumber: Int?
+    var audioFormat: AudioFormatInfo?
 
     init(url: URL) {
         self.id = UUID()
@@ -37,6 +38,7 @@ struct Track: Identifiable, Hashable {
         self.year = nil
         self.trackNumber = nil
         self.discNumber = nil
+        self.audioFormat = nil
     }
     
     mutating func loadMetadata() async {
@@ -44,6 +46,7 @@ struct Track: Identifiable, Hashable {
         
         do {
             self.duration = try await asset.load(.duration).seconds
+            self.audioFormat = AudioFormatInfo.inspect(url: url)
             
             let formats = try await asset.load(.availableMetadataFormats)
             var foundLyricsText: String? = nil

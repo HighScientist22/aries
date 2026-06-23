@@ -25,7 +25,7 @@ actor MetadataService {
         }
     }
 
-    func albumDetail(for album: AlbumGroup, libraryArtwork: URL?) async -> EnrichedAlbumDetail {
+    func albumDetail(for album: AlbumGroup, libraryArtwork: URL?, preferredReleaseID: String? = nil) async -> EnrichedAlbumDetail {
         let key = album.id
         if let cached = albumCache[key] { return cached }
 
@@ -35,19 +35,26 @@ actor MetadataService {
         async let lastFM = LastFMService.shared.fetchAlbumInfo(artist: album.artist, album: album.title)
 
         if let mb = await musicBrainz {
-            detail.musicBrainzID = mb.id
+            detail.musicBrainzID = preferredReleaseID ?? mb.id
             detail.releaseDate = mb.date
             detail.label = mb.label
             detail.country = mb.country
-            if let cover = await MusicBrainzService.shared.coverArtURL(releaseID: mb.id) {
+            let coverReleaseID = preferredReleaseID ?? mb.id
+            if let cover = await MusicBrainzService.shared.coverArtURL(releaseID: coverReleaseID) {
                 detail.coverArtURL = cover
             }
+        } else if let preferredReleaseID {
+            detail.musicBrainzID = preferredReleaseID
         }
 
         let lastFMResult = await lastFM
         if let summary = lastFMResult.summary { detail.summary = summary }
         if !lastFMResult.tags.isEmpty { detail.tags = lastFMResult.tags }
         if detail.coverArtURL == nil { detail.coverArtURL = libraryArtwork }
+
+        if let releaseID = preferredReleaseID ?? detail.musicBrainzID {
+            detail.credits = await MusicBrainzService.shared.releaseCredits(releaseID: releaseID)
+        }
 
         albumCache[key] = detail
         scheduleSave()

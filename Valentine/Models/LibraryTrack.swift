@@ -21,6 +21,10 @@ nonisolated struct LibraryTrack: Codable, Identifiable, Hashable, Sendable {
     var year: Int?
     var trackNumber: Int?
     var discNumber: Int?
+    var audioCodec: String?
+    var audioSampleRate: Int?
+    var audioBitDepth: Int?
+    var audioChannels: Int?
 
     init(
         id: UUID,
@@ -34,7 +38,11 @@ nonisolated struct LibraryTrack: Codable, Identifiable, Hashable, Sendable {
         genre: String? = nil,
         year: Int? = nil,
         trackNumber: Int? = nil,
-        discNumber: Int? = nil
+        discNumber: Int? = nil,
+        audioCodec: String? = nil,
+        audioSampleRate: Int? = nil,
+        audioBitDepth: Int? = nil,
+        audioChannels: Int? = nil
     ) {
         self.id = id
         self.bookmark = bookmark
@@ -48,6 +56,20 @@ nonisolated struct LibraryTrack: Codable, Identifiable, Hashable, Sendable {
         self.year = year
         self.trackNumber = trackNumber
         self.discNumber = discNumber
+        self.audioCodec = audioCodec
+        self.audioSampleRate = audioSampleRate
+        self.audioBitDepth = audioBitDepth
+        self.audioChannels = audioChannels
+    }
+
+    var audioFormat: AudioFormatInfo? {
+        guard let audioCodec, let audioSampleRate, let audioChannels else { return nil }
+        return AudioFormatInfo(
+            codec: audioCodec,
+            sampleRate: audioSampleRate,
+            bitDepth: audioBitDepth,
+            channels: audioChannels
+        )
     }
     // collapses "X feat. Y", "X & Y", "X, Y" into a single "X".
     var albumArtist: String {

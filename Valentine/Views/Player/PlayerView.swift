@@ -61,11 +61,22 @@ struct PlayerView: View {
                 .layoutPriority(1)
 
             VStack(spacing: 4) {
-                Text(engine.currentTrack?.title ?? "No Track Selected")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    Text(engine.currentTrack?.title ?? "No Track Selected")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+
+                    if let libraryTrack = currentLibraryTrack {
+                        FavoriteHeartButton(
+                            isFavorite: library.isFavorite(track: libraryTrack),
+                            accent: theme.accent
+                        ) {
+                            library.toggleFavorite(track: libraryTrack)
+                        }
+                    }
+                }
 
                 if let artist = engine.currentTrack?.artist, !artist.isEmpty {
                     Button {
@@ -99,6 +110,12 @@ struct PlayerView: View {
                         .foregroundStyle(theme.accent)
                     }
                     .foregroundStyle(theme.accent)
+                }
+
+                if let format = engine.currentTrack?.audioFormat {
+                    Text(format.displayString)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.tertiary)
                 }
 
                 if let album = engine.currentTrack?.album, !album.isEmpty {

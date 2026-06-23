@@ -102,6 +102,26 @@ struct AlbumDetailView: View {
                         }
                     }
 
+                    if let credits = detail?.credits, !credits.isEmpty {
+                        GlassCard {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Credits")
+                                    .font(.headline)
+                                ForEach(credits) { credit in
+                                    HStack(alignment: .top, spacing: 12) {
+                                        Text(credit.role)
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.secondary)
+                                            .frame(width: 72, alignment: .leading)
+                                        Text(credit.name)
+                                            .font(.subheadline)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     let alternateVersions = library.alternateAlbumVersions(for: album)
                     if !alternateVersions.isEmpty {
                         GlassCard {
@@ -190,7 +210,12 @@ struct AlbumDetailView: View {
         .onExitCommand(perform: onBack)
         .task(id: album.id) {
             isLoading = true
-            let loaded = await MetadataService.shared.albumDetail(for: album, libraryArtwork: libraryArtwork)
+            let releaseID = library.musicBrainzReleaseID(for: album)
+            let loaded = await MetadataService.shared.albumDetail(
+                for: album,
+                libraryArtwork: libraryArtwork,
+                preferredReleaseID: releaseID
+            )
             detail = loaded
             isLoading = false
             if let url = libraryArtwork ?? loaded.coverArtURL,

@@ -11,6 +11,10 @@ struct FocusMix: Identifiable, Hashable {
     let subtitle: String
     let artworkFile: String?
     let tracks: [LibraryTrack]
+
+    var prefersShuffle: Bool {
+        id.hasPrefix("unheard-") || id == "genre-focus" || id == "favorites-focus"
+    }
 }
 
 struct PlayHistoryEntry: Codable, Identifiable, Hashable {

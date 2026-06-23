@@ -100,6 +100,26 @@ struct LibraryPlaybackMenu: ViewModifier {
 
             if tracks.count == 1, let track = tracks.first {
                 Divider()
+                Menu("Rate Track") {
+                    ForEach(1...5, id: \.self) { stars in
+                        Button {
+                            library.setRating(stars, for: track.id)
+                        } label: {
+                            HStack {
+                                Text(String(repeating: "★", count: stars))
+                                if library.rating(for: track.id) >= stars {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                    if library.rating(for: track.id) > 0 {
+                        Button("Clear Rating") {
+                            library.setRating(0, for: track.id)
+                        }
+                    }
+                }
+                Divider()
                 Button {
                     library.toggleFavorite(track: track)
                 } label: {

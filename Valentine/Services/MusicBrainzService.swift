@@ -140,6 +140,32 @@ actor MusicBrainzService {
         return artist.id
     }
 
+    func releaseCredits(releaseID: String) async -> [AlbumCredit] {
+        guard let url = URL(string: "\(baseURL)/release/\(releaseID)?inc=artist-credits&fmt=json") else { return [] }
+        guard let data = await request(url: url) else { return [] }
+
+        struct ReleaseDetail: Decodable {
+            struct ArtistCredit: Decodable {
+                let name: String?
+                let artist: ArtistRef?
+                struct ArtistRef: Decodable { let name: String? }
+            }
+            let artistCredit: [ArtistCredit]?
+
+            enum CodingKeys: String, CodingKey {
+                case artistCredit = "artist-credit"
+            }
+        }
+
+        guard let release = try? JSONDecoder().decode(ReleaseDetail.self, from: data),
+              let credits = release.artistCredit,
+              !credits.isEmpty else { return [] }
+
+        let names = credits.compactMap { $0.name ?? $0.artist?.name }
+        guard !names.isEmpty else { return [] }
+        return [AlbumCredit(id: "release-artists", name: names.joined(separator: ", "), role: "Artists")]
+    }
+
     func coverArtURL(releaseID: String) async -> URL? {
         let url = URL(string: "https://coverartarchive.org/release/\(releaseID)/front-500")!
         var request = URLRequest(url: url)

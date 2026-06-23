@@ -5,6 +5,12 @@
 
 import Foundation
 
+nonisolated struct AlbumCredit: Codable, Equatable, Sendable, Identifiable {
+    let id: String
+    let name: String
+    let role: String
+}
+
 nonisolated struct EnrichedAlbumDetail: Codable, Equatable, Sendable {
     let title: String
     let artist: String
@@ -13,6 +19,7 @@ nonisolated struct EnrichedAlbumDetail: Codable, Equatable, Sendable {
     var country: String?
     var summary: String?
     var tags: [String]
+    var credits: [AlbumCredit]
     var coverArtURL: URL?
     var musicBrainzID: String?
 
@@ -20,6 +27,7 @@ nonisolated struct EnrichedAlbumDetail: Codable, Equatable, Sendable {
         self.title = title
         self.artist = artist
         self.tags = []
+        self.credits = []
     }
 }
 

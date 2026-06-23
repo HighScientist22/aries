@@ -5,6 +5,7 @@ struct LibrarySettingsView: View {
     @AppStorage("scanOnLaunch") private var scanOnLaunch: Bool = true
     @AppStorage("hideDuplicateTracks") private var hideDuplicateTracks: Bool = false
     @AppStorage("autoIdentifyOnImport") private var autoIdentifyOnImport: Bool = true
+    @AppStorage("refreshUnidentifiedOnLaunch") private var refreshUnidentifiedOnLaunch: Bool = true
 
     private var hasAcoustIDKey: Bool {
         !Secrets.acoustIDApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -18,6 +19,8 @@ struct LibrarySettingsView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
+
+            UnheardDiscoverSettingsSection()
 
             Section(header: Text("Identification")) {
                 if library.isIdentifying {
@@ -35,6 +38,8 @@ struct LibrarySettingsView: View {
                 }
 
                 Toggle("Identify new tracks on import", isOn: $autoIdentifyOnImport)
+
+                Toggle("Identify unidentified tracks on launch", isOn: $refreshUnidentifiedOnLaunch)
 
                 Toggle("Hide duplicate tracks in browse", isOn: $hideDuplicateTracks)
                     .onChange(of: hideDuplicateTracks) { _, _ in

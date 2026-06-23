@@ -26,6 +26,7 @@ class LibraryStore: ObservableObject {
     @Published private(set) var isIdentifying = false
     @Published private(set) var identificationProgress: (completed: Int, total: Int) = (0, 0)
     @Published private(set) var pendingIdentificationCount = 0
+    @Published private(set) var trackRatings: [UUID: Int] = [:]
 
     private var identificationStore = IdentificationStore()
     private var backgroundIdentificationTask: Task<Void, Never>?
@@ -43,6 +44,7 @@ class LibraryStore: ObservableObject {
     private let playlistsURL: URL
     private let listeningStatsURL: URL
     private let identificationURL: URL
+    private let ratingsURL: URL
     private let artworkDirURL: URL
 
     // Directory watchers: a DispatchSource per watched directory and the
@@ -61,13 +63,17 @@ class LibraryStore: ObservableObject {
         playlistsURL = baseURL.appendingPathComponent("playlists.json")
         listeningStatsURL = baseURL.appendingPathComponent("listening-stats.json")
         identificationURL = baseURL.appendingPathComponent("identification.json")
+        ratingsURL = baseURL.appendingPathComponent("ratings.json")
         artworkDirURL = baseURL.appendingPathComponent("Artwork", isDirectory: true)
 
         try? FileManager.default.createDirectory(at: artworkDirURL, withIntermediateDirectories: true)
         load()
         // Kick off a background scan on startup (non-blocking). Respects user
         // preference `scanOnLaunch` (defaults to true).
-        Task { await scanLibraryOnLaunch() }
+        Task {
+            await scanLibraryOnLaunch()
+            refreshUnidentifiedTracksOnLaunch()
+        }
         loadWatchedFoldersFromDefaults()
     }
 
@@ -100,8 +106,52 @@ class LibraryStore: ObservableObject {
            let decoded = try? JSONDecoder().decode(IdentificationStore.self, from: data) {
             identificationStore = decoded
         }
+        if let data = try? Data(contentsOf: ratingsURL),
+           let decoded = try? JSONDecoder().decode([UUID: Int].self, from: data) {
+            trackRatings = decoded
+        }
         recomputeDuplicateGroups()
         recomputeGroups()
+    }
+
+    func rating(for trackID: UUID) -> Int {
+        trackRatings[trackID] ?? 0
+    }
+
+    func setRating(_ rating: Int, for trackID: UUID) {
+        let clamped = min(5, max(0, rating))
+        if clamped == 0 {
+            trackRatings.removeValue(forKey: trackID)
+        } else {
+            trackRatings[trackID] = clamped
+        }
+        persistRatings()
+    }
+
+    func musicBrainzReleaseID(for album: AlbumGroup) -> String? {
+        for track in album.tracks {
+            if let id = identificationStore.tracks[track.id]?.musicBrainzReleaseID {
+                return id
+            }
+        }
+        return nil
+    }
+
+    private func refreshUnidentifiedTracksOnLaunch() {
+        let enabled = UserDefaults.standard.object(forKey: "refreshUnidentifiedOnLaunch") as? Bool ?? true
+        guard enabled else { return }
+
+        let ids = tracks.compactMap { track -> UUID? in
+            guard let identification = identificationStore.tracks[track.id] else { return track.id }
+            return identification.confidence > 0 ? nil : track.id
+        }
+        guard !ids.isEmpty else { return }
+        identifyTracks(ids, showsProgress: false)
+    }
+
+    private func persistRatings() {
+        guard let data = try? JSONEncoder().encode(trackRatings) else { return }
+        try? data.write(to: ratingsURL, options: .atomic)
     }
 
     private var shouldHideDuplicates: Bool {
@@ -265,6 +315,10 @@ class LibraryStore: ObservableObject {
         recomputeGroups()
     }
 
+    func refreshHomeMixes() {
+        objectWillChange.send()
+    }
+
     private func recomputeGroups() {
         let snapshot = tracksForGrouping
         Task(priority: .userInitiated) {
@@ -355,15 +409,39 @@ class LibraryStore: ObservableObject {
         }
 
         let recentIDs = Set(listeningStats.playHistory.prefix(150).map(\.trackID))
-        let discoverTracks = Array(tracks.filter { !recentIDs.contains($0.id) }.shuffled().prefix(40))
-        if discoverTracks.count >= 8 {
-            mixes.append(FocusMix(
-                id: "discover",
-                title: "Discover",
-                subtitle: "Not heard lately",
-                artworkFile: discoverTracks.first?.artworkFile,
-                tracks: discoverTracks
-            ))
+        if UnheardDiscoverPreferences.isFeatureEnabled {
+            for genre in UnheardDiscoverGenre.allCases where UnheardDiscoverPreferences.isPresetEnabled(genre) {
+                let genreTracks = tracks.filter { track in
+                    !recentIDs.contains(track.id) && trackMatchesUnheardGenre(track, genre: genre)
+                }
+                let mixTracks = Array(genreTracks.shuffled().prefix(40))
+                guard mixTracks.count >= 8 else { continue }
+                mixes.append(FocusMix(
+                    id: genre.focusMixID,
+                    title: genre.title,
+                    subtitle: "Not heard lately",
+                    artworkFile: mixTracks.first?.artworkFile,
+                    tracks: mixTracks
+                ))
+            }
+
+            for genreName in UnheardDiscoverPreferences.enabledLibraryGenres.sorted() {
+                guard let group = genreGroups.first(where: { $0.name == genreName }) else { continue }
+                let mixTracks = Array(
+                    group.tracks
+                        .filter { !recentIDs.contains($0.id) }
+                        .shuffled()
+                        .prefix(40)
+                )
+                guard mixTracks.count >= 8 else { continue }
+                mixes.append(FocusMix(
+                    id: UnheardDiscoverPreferences.libraryGenreFocusMixID(for: genreName),
+                    title: "Unheard \(genreName)",
+                    subtitle: "Not heard lately",
+                    artworkFile: mixTracks.first?.artworkFile,
+                    tracks: mixTracks
+                ))
+            }
         }
 
         return mixes
@@ -813,7 +891,11 @@ class LibraryStore: ObservableObject {
                 genre: track.genre,
                 year: track.year,
                 trackNumber: track.trackNumber,
-                discNumber: track.discNumber
+                discNumber: track.discNumber,
+                audioCodec: track.audioFormat?.codec,
+                audioSampleRate: track.audioFormat?.sampleRate,
+                audioBitDepth: track.audioFormat?.bitDepth,
+                audioChannels: track.audioFormat?.channels
             )
             tracks.insert(record, at: 0)
             newIDs.append(record.id)
@@ -1043,7 +1125,11 @@ class LibraryStore: ObservableObject {
             genre: track.genre,
             year: track.year,
             trackNumber: track.trackNumber,
-            discNumber: track.discNumber
+            discNumber: track.discNumber,
+            audioCodec: track.audioFormat?.codec,
+            audioSampleRate: track.audioFormat?.sampleRate,
+            audioBitDepth: track.audioFormat?.bitDepth,
+            audioChannels: track.audioFormat?.channels
         )
     }
 

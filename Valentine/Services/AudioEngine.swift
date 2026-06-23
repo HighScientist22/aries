@@ -474,6 +474,7 @@ class AudioEngine: ObservableObject {
             track.artist = libTrack.artist
             track.album = libTrack.album
             track.duration = libTrack.duration
+            track.audioFormat = libTrack.audioFormat ?? AudioFormatInfo.inspect(url: url)
             if let artURL = store.artworkURL(for: libTrack),
                let image = await ArtworkLoader.shared.image(at: artURL, maxPixelSize: 512) {
                 track.nsImage = image

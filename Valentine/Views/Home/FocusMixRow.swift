@@ -29,7 +29,7 @@ struct FocusMixRow: View {
                             engine: engine,
                             library: library,
                             tracks: mix.tracks,
-                            shuffleTracks: mix.id == "genre-focus" || mix.id == "favorites-focus" || mix.id == "discover"
+                            shuffleTracks: mix.prefersShuffle
                         )
                     }
                 }
