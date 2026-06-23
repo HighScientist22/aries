@@ -8,6 +8,7 @@
 // Only this template (empty placeholders) belongs in the repository.
 //
 // Last.fm keys: https://www.last.fm/api/account/create
+// AcoustID key: https://acoustid.org/new-application
 // ListenBrainz: paste your user token in Settings → Integrations (not stored here).
 
 // import Foundation
@@ -15,4 +16,5 @@
 // struct Secrets {
 //     static let lastFMApiKey = ""
 //     static let lastFMSharedSecret = ""
+//     static let acoustIDApiKey = ""
 // }

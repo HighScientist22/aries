@@ -25,8 +25,10 @@ class LibraryStore: ObservableObject {
     @Published private(set) var duplicateGroups: [DuplicateTrackGroup] = []
     @Published private(set) var isIdentifying = false
     @Published private(set) var identificationProgress: (completed: Int, total: Int) = (0, 0)
+    @Published private(set) var pendingIdentificationCount = 0
 
     private var identificationStore = IdentificationStore()
+    private var backgroundIdentificationTask: Task<Void, Never>?
 
     private let supportedExtensions = SupportedAudioFormats.extensions
     private let recentlyPlayedLimit = 25
@@ -119,25 +121,58 @@ class LibraryStore: ObservableObject {
     }
 
     func identifyLibrary() {
-        guard !isIdentifying else { return }
-        isIdentifying = true
-        let snapshot = tracks
-        identificationProgress = (0, snapshot.count)
+        identifyTracks(tracks.map(\.id), showsProgress: true)
+    }
 
-        Task {
-            for (index, track) in snapshot.enumerated() {
-                let result = await IdentificationService.shared.identify(track)
+    func identifyTracks(_ ids: [UUID], showsProgress: Bool = false) {
+        let uniqueIDs = Array(Set(ids))
+        guard !uniqueIDs.isEmpty else { return }
+
+        if showsProgress {
+            guard !isIdentifying else { return }
+            isIdentifying = true
+            identificationProgress = (0, uniqueIDs.count)
+        } else {
+            pendingIdentificationCount += uniqueIDs.count
+        }
+
+        backgroundIdentificationTask?.cancel()
+        backgroundIdentificationTask = Task {
+            defer {
+                if showsProgress {
+                    isIdentifying = false
+                } else {
+                    pendingIdentificationCount = max(0, pendingIdentificationCount - uniqueIDs.count)
+                }
+            }
+
+            for (index, id) in uniqueIDs.enumerated() {
+                if Task.isCancelled { break }
+                guard let track = tracks.first(where: { $0.id == id }) else { continue }
+
+                let fileURL = resolveURL(for: track)
+                let result = await IdentificationService.shared.identify(track, fileURL: fileURL)
                 identificationStore.tracks[track.id] = result
-                identificationProgress = (index + 1, snapshot.count)
+
+                if showsProgress {
+                    identificationProgress = (index + 1, uniqueIDs.count)
+                }
+
                 if index % 5 == 4 {
                     persistIdentification()
                 }
             }
+
             persistIdentification()
             recomputeDuplicateGroups()
             recomputeGroups()
-            isIdentifying = false
         }
+    }
+
+    private func scheduleIdentificationIfNeeded(for ids: [UUID]) {
+        let autoIdentify = UserDefaults.standard.object(forKey: "autoIdentifyOnImport") as? Bool ?? true
+        guard autoIdentify, !ids.isEmpty else { return }
+        identifyTracks(ids, showsProgress: false)
     }
 
     func setPreferredDuplicate(trackID: UUID, in groupID: String) {
@@ -188,7 +223,9 @@ class LibraryStore: ObservableObject {
         var buckets: [String: [UUID]] = [:]
         for track in tracks {
             let key: String
-            if let recordingID = identificationStore.tracks[track.id]?.musicBrainzRecordingID {
+            if let acoustID = identificationStore.tracks[track.id]?.acoustID {
+                key = "acoustid:\(acoustID)"
+            } else if let recordingID = identificationStore.tracks[track.id]?.musicBrainzRecordingID {
                 key = "mb-recording:\(recordingID)"
             } else {
                 key = "fuzzy:\(duplicateFingerprint(for: track))"
@@ -200,9 +237,14 @@ class LibraryStore: ObservableObject {
             .filter { $0.value.count > 1 }
             .map { key, ids in
                 let preferred = identificationStore.preferredDuplicateTrackID[key] ?? ids[0]
-                let reason = key.hasPrefix("mb-recording:")
-                    ? "Same MusicBrainz recording"
-                    : "Likely duplicate (title, artist, duration)"
+                let reason: String
+                if key.hasPrefix("acoustid:") {
+                    reason = "Same AcoustID fingerprint match"
+                } else if key.hasPrefix("mb-recording:") {
+                    reason = "Same MusicBrainz recording"
+                } else {
+                    reason = "Likely duplicate (title, artist, duration)"
+                }
                 return DuplicateTrackGroup(id: key, trackIDs: ids, preferredTrackID: preferred, reason: reason)
             }
             .sorted { $0.trackIDs.count > $1.trackIDs.count }
@@ -737,6 +779,7 @@ class LibraryStore: ObservableObject {
             }
             persist()
             recomputeGroups()
+            scheduleIdentificationIfNeeded(for: newRecords.map(\.id))
         }
     }
 
@@ -746,6 +789,7 @@ class LibraryStore: ObservableObject {
 
         let audioURLs = expand(urls)
         let existingPaths = Set(resolvedPaths())
+        var newIDs: [UUID] = []
 
         for url in audioURLs {
             if existingPaths.contains(url.standardizedFileURL.path) { continue }
@@ -772,10 +816,12 @@ class LibraryStore: ObservableObject {
                 discNumber: track.discNumber
             )
             tracks.insert(record, at: 0)
+            newIDs.append(record.id)
         }
 
         persist()
         recomputeGroups()
+        scheduleIdentificationIfNeeded(for: newIDs)
     }
 
     /// Scans sensible default folders (and any user-configured folders) for

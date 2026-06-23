@@ -368,6 +368,7 @@ class AudioEngine: ObservableObject {
         Task { @MainActor in
             libraryStore = store
             var session = RadioSession(seed: seed)
+            session.similarArtistNames = await similarArtists(for: seed)
             let libraryTracks = LibraryRadio.nextTracks(session: &session, library: store, limit: 15)
             guard !libraryTracks.isEmpty else { return }
 
@@ -390,6 +391,17 @@ class AudioEngine: ObservableObject {
             queueLibraryIDs = resolved.map(\.libraryID)
             playTrack(at: 0)
             persistQueueSoon()
+        }
+    }
+
+    private func similarArtists(for seed: RadioSeed) async -> [String] {
+        switch seed {
+        case .artist(let artist):
+            return await LastFMService.shared.similarArtists(named: artist.name)
+        case .album(let album):
+            return await LastFMService.shared.similarArtists(named: album.artist)
+        case .track(let track):
+            return await LastFMService.shared.similarArtists(named: track.albumArtist)
         }
     }
 

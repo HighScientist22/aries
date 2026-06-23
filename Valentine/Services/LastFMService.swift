@@ -200,6 +200,11 @@ class LastFMService: ObservableObject {
         }
     }
 
+    func similarArtists(named name: String) async -> [String] {
+        guard hasMetadataAPI else { return [] }
+        return await fetchArtistInfo(name: name).similar
+    }
+
     private func parseTags(from value: Any?) -> [String] {
         guard let tags = value as? [String: Any],
               let tagList = tags["tag"] as? [[String: Any]] else { return [] }

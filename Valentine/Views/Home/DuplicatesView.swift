@@ -77,6 +77,11 @@ struct DuplicatesView: View {
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 }
+                if let identification = library.identification(for: track.id), identification.source != .unknown {
+                    Text(identification.source == .acoustID ? "AcoustID match" : "MusicBrainz match")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Spacer()

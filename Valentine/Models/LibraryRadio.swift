@@ -14,6 +14,7 @@ enum RadioSeed: Sendable {
 struct RadioSession: Sendable {
     let seed: RadioSeed
     var playedTrackIDs: Set<UUID> = []
+    var similarArtistNames: [String] = []
 }
 
 @MainActor
@@ -58,6 +59,7 @@ enum LibraryRadio {
             appendUnique(library.tracks.filter {
                 $0.albumArtist == seedTrack.albumArtist && $0.id != seedTrack.id
             }.shuffled())
+            appendUnique(tracksFromSimilarArtists(session.similarArtistNames, library: library, excluding: seen))
             appendUnique(genreMatches(for: seedTrack, in: library, excluding: seen))
             appendUnique(library.tracks.shuffled())
 
@@ -71,10 +73,12 @@ enum LibraryRadio {
                 appendUnique(other.tracks.shuffled())
                 if picks.count >= limit { break }
             }
+            appendUnique(tracksFromSimilarArtists(session.similarArtistNames, library: library, excluding: seen))
             appendUnique(genreMatches(for: album.tracks.first, in: library, excluding: seen))
 
         case .artist(let artist):
             appendUnique(artist.tracks.shuffled())
+            appendUnique(tracksFromSimilarArtists(session.similarArtistNames, library: library, excluding: seen))
             let relatedArtists = library.artistGroups.filter {
                 $0.id != artist.id && sharesGenre(artist, with: $0)
             }.shuffled()
@@ -87,6 +91,24 @@ enum LibraryRadio {
 
         session.playedTrackIDs.formUnion(picks.map(\.id))
         return picks
+    }
+
+    private static func tracksFromSimilarArtists(
+        _ names: [String],
+        library: LibraryStore,
+        excluding seen: Set<UUID>
+    ) -> [LibraryTrack] {
+        guard !names.isEmpty else { return [] }
+
+        var tracks: [LibraryTrack] = []
+        for name in names {
+            guard let artist = library.artistGroup(named: name) else { continue }
+            tracks.append(contentsOf: artist.tracks)
+        }
+
+        return tracks
+            .filter { !seen.contains($0.id) }
+            .shuffled()
     }
 
     private static func genreMatches(

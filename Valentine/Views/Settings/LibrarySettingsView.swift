@@ -4,6 +4,11 @@ struct LibrarySettingsView: View {
     @EnvironmentObject var library: LibraryStore
     @AppStorage("scanOnLaunch") private var scanOnLaunch: Bool = true
     @AppStorage("hideDuplicateTracks") private var hideDuplicateTracks: Bool = false
+    @AppStorage("autoIdentifyOnImport") private var autoIdentifyOnImport: Bool = true
+
+    private var hasAcoustIDKey: Bool {
+        !Secrets.acoustIDApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var body: some View {
         Form {
@@ -21,19 +26,34 @@ struct LibrarySettingsView: View {
                         value: Double(library.identificationProgress.completed),
                         total: Double(max(library.identificationProgress.total, 1))
                     )
+                } else if library.pendingIdentificationCount > 0 {
+                    ProgressView("Identifying imports… \(library.pendingIdentificationCount) remaining")
                 } else {
-                    Button("Identify Library with MusicBrainz") {
+                    Button("Identify Library") {
                         library.identifyLibrary()
                     }
                 }
-                Text("Matches tracks to MusicBrainz recordings using title, artist, and duration. Results are cached locally and used for duplicate detection and album versions.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+
+                Toggle("Identify new tracks on import", isOn: $autoIdentifyOnImport)
 
                 Toggle("Hide duplicate tracks in browse", isOn: $hideDuplicateTracks)
                     .onChange(of: hideDuplicateTracks) { _, _ in
                         library.refreshBrowseGroups()
                     }
+
+                LabeledContent("Chromaprint (fpcalc)") {
+                    Text(ChromaprintService.isAvailable ? "Available" : "Not found")
+                        .foregroundStyle(ChromaprintService.isAvailable ? .green : .secondary)
+                }
+
+                LabeledContent("AcoustID API key") {
+                    Text(hasAcoustIDKey ? "Configured" : "Missing")
+                        .foregroundStyle(hasAcoustIDKey ? .green : .secondary)
+                }
+
+                Text("Fingerprint identification uses Chromaprint (`brew install chromaprint`) and an AcoustID API key in `Secrets.swift`. Metadata fallback uses MusicBrainz when fingerprints are unavailable.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
 
             Section(header: Text("Watched Folders")) {

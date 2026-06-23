@@ -5,26 +5,38 @@
 
 import Foundation
 
+nonisolated enum IdentificationSource: String, Codable, Sendable {
+    case acoustID
+    case musicBrainz
+    case unknown
+}
+
 nonisolated struct TrackIdentification: Codable, Equatable, Sendable {
+    var acoustID: String?
     var musicBrainzRecordingID: String?
     var musicBrainzReleaseID: String?
     var musicBrainzReleaseGroupID: String?
     var matchedTitle: String?
+    var source: IdentificationSource
     var confidence: Double
     var identifiedAt: Date
 
     init(
+        acoustID: String? = nil,
         musicBrainzRecordingID: String? = nil,
         musicBrainzReleaseID: String? = nil,
         musicBrainzReleaseGroupID: String? = nil,
         matchedTitle: String? = nil,
+        source: IdentificationSource = .unknown,
         confidence: Double = 0,
         identifiedAt: Date = Date()
     ) {
+        self.acoustID = acoustID
         self.musicBrainzRecordingID = musicBrainzRecordingID
         self.musicBrainzReleaseID = musicBrainzReleaseID
         self.musicBrainzReleaseGroupID = musicBrainzReleaseGroupID
         self.matchedTitle = matchedTitle
+        self.source = source
         self.confidence = confidence
         self.identifiedAt = identifiedAt
     }

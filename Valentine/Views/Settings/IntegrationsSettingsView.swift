@@ -15,7 +15,7 @@ struct IntegrationsSettingsView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Label("Last.fm API key not configured", systemImage: "key.fill")
                             .foregroundStyle(.orange)
-                        Text("Copy `Valentine/Config/Secrets.example.swift` to `Secrets.swift` in the same folder, add your key and secret, then rebuild. That file is gitignored and stays only on your Mac.")
+                        Text("Copy `Valentine/Config/Secrets.example.swift` to `Secrets.swift` in the same folder, add your Last.fm and AcoustID keys, then rebuild. That file is gitignored and stays only on your Mac.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Link("Create a Last.fm API account", destination: URL(string: "https://www.last.fm/api/account/create")!)
