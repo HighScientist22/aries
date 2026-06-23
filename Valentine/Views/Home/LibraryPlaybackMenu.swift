@@ -69,6 +69,10 @@ struct LibraryPlaybackMenu: ViewModifier {
 
             Divider()
 
+            radioMenu
+
+            Divider()
+
             playlistMenu
 
             if let album = resolvedAlbum {
@@ -104,6 +108,38 @@ struct LibraryPlaybackMenu: ViewModifier {
                         systemImage: library.isFavorite(track: track) ? "heart.fill" : "heart"
                     )
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var radioMenu: some View {
+        if let album = resolvedAlbum {
+            Button {
+                engine.startRadio(seed: .album(album), store: library)
+            } label: {
+                Label("Start Album Radio", systemImage: "dot.radiowaves.left.and.right")
+            }
+        }
+
+        if let artist {
+            Button {
+                engine.startRadio(seed: .artist(artist), store: library)
+            } label: {
+                Label("Start Artist Radio", systemImage: "dot.radiowaves.left.and.right")
+            }
+        } else if let track = tracks.first, tracks.count == 1 {
+            Button {
+                engine.startRadio(seed: .track(track), store: library)
+            } label: {
+                Label("Start Track Radio", systemImage: "dot.radiowaves.left.and.right")
+            }
+        } else if let album = resolvedAlbum,
+                  let artistGroup = library.artistGroup(named: album.artist) {
+            Button {
+                engine.startRadio(seed: .artist(artistGroup), store: library)
+            } label: {
+                Label("Start Artist Radio", systemImage: "dot.radiowaves.left.and.right")
             }
         }
     }

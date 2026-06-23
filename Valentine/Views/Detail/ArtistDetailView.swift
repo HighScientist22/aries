@@ -131,15 +131,29 @@ struct ArtistDetailView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
-                Button(action: playArtist) {
-                    Label("Play Artist", systemImage: "play.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(theme.accent, in: Capsule())
-                        .foregroundStyle(.white)
+                HStack(spacing: 12) {
+                    Button(action: playArtist) {
+                        Label("Play Artist", systemImage: "play.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                            .background(theme.accent, in: Capsule())
+                            .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        engine.startRadio(seed: .artist(artist), store: library)
+                    } label: {
+                        Label("Radio", systemImage: "dot.radiowaves.left.and.right")
+                            .font(.subheadline.weight(.medium))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .glassEffect(.regular, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
                 .padding(.top, 4)
 
                 if let tags = detail?.tags, !tags.isEmpty {

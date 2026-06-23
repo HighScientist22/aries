@@ -32,6 +32,8 @@ class AudioEngine: ObservableObject {
 
     @Published var repeatMode: RepeatMode = .off
     @Published var shuffleMode: Bool = false
+    @Published private(set) var isRadioActive = false
+    @Published private(set) var radioLabel: String?
     @Published var isGlowEffectEnabled: Bool = false {
         didSet {
             UserDefaults.standard.set(isGlowEffectEnabled, forKey: "isGlowEffectEnabled")
@@ -96,6 +98,7 @@ class AudioEngine: ObservableObject {
     // Library IDs aligned to `queue`, used to record recently-played tracks.
     private var queueLibraryIDs: [UUID] = []
     private weak var libraryStore: LibraryStore?
+    private var radioSession: RadioSession?
 
     private var userDefaultsObserver: NSObjectProtocol?
     private var hasScrobbledCurrentTrack = false
@@ -351,6 +354,7 @@ class AudioEngine: ObservableObject {
         store: LibraryStore,
         shuffleTracks: Bool = false
     ) {
+        stopRadio()
         queueFromLibrary(
             libraryTracks,
             startIndex: startIndex,
@@ -358,6 +362,41 @@ class AudioEngine: ObservableObject {
             mode: .playNow,
             shuffleTracks: shuffleTracks
         )
+    }
+
+    func startRadio(seed: RadioSeed, store: LibraryStore) {
+        Task { @MainActor in
+            libraryStore = store
+            var session = RadioSession(seed: seed)
+            let libraryTracks = LibraryRadio.nextTracks(session: &session, library: store, limit: 15)
+            guard !libraryTracks.isEmpty else { return }
+
+            radioSession = session
+            isRadioActive = true
+            radioLabel = LibraryRadio.displayTitle(for: seed)
+            repeatMode = .off
+            switch seed {
+            case .album:
+                shuffleMode = false
+            case .track, .artist:
+                shuffleMode = true
+            }
+
+            let resolved = await Self.resolveLibraryTracks(libraryTracks, store: store, shuffle: false)
+            guard !resolved.isEmpty else { return }
+
+            stopPlayback()
+            queue = resolved.map(\.track)
+            queueLibraryIDs = resolved.map(\.libraryID)
+            playTrack(at: 0)
+            persistQueueSoon()
+        }
+    }
+
+    func stopRadio() {
+        isRadioActive = false
+        radioLabel = nil
+        radioSession = nil
     }
 
     func queueFromLibrary(
@@ -601,6 +640,10 @@ class AudioEngine: ObservableObject {
         }
 
         guard let next = sequentialIndex(after: index) else {
+            if isRadioActive {
+                Task { await extendAndPlayNextRadioTrack() }
+                return
+            }
             stopPlayback()
             segmentStartFrame = 0
             currentTime = 0
@@ -737,6 +780,8 @@ class AudioEngine: ObservableObject {
                 playTrack(at: nextIndex)
             } else if repeatMode == .all {
                 playTrack(at: currentIndex)
+            } else if isRadioActive {
+                Task { await extendAndPlayNextRadioTrack() }
             } else {
                 stopPlayback()
                 segmentStartFrame = 0
@@ -747,6 +792,8 @@ class AudioEngine: ObservableObject {
 
         if currentIndex + 1 < queue.count {
             playTrack(at: currentIndex + 1)
+        } else if isRadioActive {
+            Task { await extendAndPlayNextRadioTrack() }
         } else if repeatMode == .all {
             playTrack(at: 0)
         } else {
@@ -754,6 +801,40 @@ class AudioEngine: ObservableObject {
             segmentStartFrame = 0
             currentTime = 0
         }
+    }
+
+    private func extendAndPlayNextRadioTrack() async {
+        guard isRadioActive, let store = libraryStore, var session = radioSession else {
+            stopPlayback()
+            segmentStartFrame = 0
+            currentTime = 0
+            return
+        }
+
+        let libraryTracks = LibraryRadio.nextTracks(session: &session, library: store)
+        radioSession = session
+        guard !libraryTracks.isEmpty else {
+            stopRadio()
+            stopPlayback()
+            segmentStartFrame = 0
+            currentTime = 0
+            return
+        }
+
+        let resolved = await Self.resolveLibraryTracks(libraryTracks, store: store, shuffle: false)
+        guard !resolved.isEmpty else {
+            stopRadio()
+            stopPlayback()
+            segmentStartFrame = 0
+            currentTime = 0
+            return
+        }
+
+        let nextIndex = queue.count
+        queue.append(contentsOf: resolved.map(\.track))
+        queueLibraryIDs.append(contentsOf: resolved.map(\.libraryID))
+        playTrack(at: nextIndex)
+        persistQueueSoon()
     }
 
     func previousTrack() {

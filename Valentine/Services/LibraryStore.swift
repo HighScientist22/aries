@@ -22,6 +22,11 @@ class LibraryStore: ObservableObject {
     @Published private(set) var playlists: [SavedPlaylist] = []
     @Published private(set) var isImporting = false
     @Published private(set) var listeningStats = ListeningStats()
+    @Published private(set) var duplicateGroups: [DuplicateTrackGroup] = []
+    @Published private(set) var isIdentifying = false
+    @Published private(set) var identificationProgress: (completed: Int, total: Int) = (0, 0)
+
+    private var identificationStore = IdentificationStore()
 
     private let supportedExtensions = SupportedAudioFormats.extensions
     private let recentlyPlayedLimit = 25
@@ -35,6 +40,7 @@ class LibraryStore: ObservableObject {
     private let favoritesURL: URL
     private let playlistsURL: URL
     private let listeningStatsURL: URL
+    private let identificationURL: URL
     private let artworkDirURL: URL
 
     // Directory watchers: a DispatchSource per watched directory and the
@@ -52,6 +58,7 @@ class LibraryStore: ObservableObject {
         favoritesURL = baseURL.appendingPathComponent("favorites.json")
         playlistsURL = baseURL.appendingPathComponent("playlists.json")
         listeningStatsURL = baseURL.appendingPathComponent("listening-stats.json")
+        identificationURL = baseURL.appendingPathComponent("identification.json")
         artworkDirURL = baseURL.appendingPathComponent("Artwork", isDirectory: true)
 
         try? FileManager.default.createDirectory(at: artworkDirURL, withIntermediateDirectories: true)
@@ -87,7 +94,123 @@ class LibraryStore: ObservableObject {
            let decoded = try? JSONDecoder().decode(ListeningStats.self, from: data) {
             listeningStats = decoded
         }
+        if let data = try? Data(contentsOf: identificationURL),
+           let decoded = try? JSONDecoder().decode(IdentificationStore.self, from: data) {
+            identificationStore = decoded
+        }
+        recomputeDuplicateGroups()
         recomputeGroups()
+    }
+
+    private var shouldHideDuplicates: Bool {
+        UserDefaults.standard.bool(forKey: "hideDuplicateTracks")
+    }
+
+    var tracksForGrouping: [LibraryTrack] {
+        guard shouldHideDuplicates else { return tracks }
+        let suppressed = Set(duplicateGroups.flatMap { group in
+            group.trackIDs.filter { $0 != group.preferredTrackID }
+        }).union(identificationStore.hiddenDuplicateTrackIDSet)
+        return tracks.filter { !suppressed.contains($0.id) }
+    }
+
+    func identification(for trackID: UUID) -> TrackIdentification? {
+        identificationStore.tracks[trackID]
+    }
+
+    func identifyLibrary() {
+        guard !isIdentifying else { return }
+        isIdentifying = true
+        let snapshot = tracks
+        identificationProgress = (0, snapshot.count)
+
+        Task {
+            for (index, track) in snapshot.enumerated() {
+                let result = await IdentificationService.shared.identify(track)
+                identificationStore.tracks[track.id] = result
+                identificationProgress = (index + 1, snapshot.count)
+                if index % 5 == 4 {
+                    persistIdentification()
+                }
+            }
+            persistIdentification()
+            recomputeDuplicateGroups()
+            recomputeGroups()
+            isIdentifying = false
+        }
+    }
+
+    func setPreferredDuplicate(trackID: UUID, in groupID: String) {
+        identificationStore.preferredDuplicateTrackID[groupID] = trackID
+        persistIdentification()
+        recomputeDuplicateGroups()
+        recomputeGroups()
+    }
+
+    func setHiddenDuplicate(_ trackID: UUID, hidden: Bool) {
+        var hiddenIDs = identificationStore.hiddenDuplicateTrackIDSet
+        if hidden {
+            hiddenIDs.insert(trackID)
+        } else {
+            hiddenIDs.remove(trackID)
+        }
+        identificationStore.hiddenDuplicateTrackIDSet = hiddenIDs
+        persistIdentification()
+        recomputeGroups()
+    }
+
+    func alternateAlbumVersions(for album: AlbumGroup) -> [AlbumGroup] {
+        if let groupID = releaseGroupID(for: album) {
+            return albumGroups.filter {
+                $0.id != album.id && releaseGroupID(for: $0) == groupID
+            }
+        }
+
+        let normalizedTitle = normalizeMetadataToken(album.title)
+        let normalizedArtist = normalizeMetadataToken(album.artist)
+        return albumGroups.filter {
+            guard $0.id != album.id else { return false }
+            return normalizeMetadataToken($0.title) == normalizedTitle
+                && normalizeMetadataToken($0.artist) == normalizedArtist
+        }
+    }
+
+    func releaseGroupID(for album: AlbumGroup) -> String? {
+        for track in album.tracks {
+            if let id = identificationStore.tracks[track.id]?.musicBrainzReleaseGroupID {
+                return id
+            }
+        }
+        return nil
+    }
+
+    private func recomputeDuplicateGroups() {
+        var buckets: [String: [UUID]] = [:]
+        for track in tracks {
+            let key: String
+            if let recordingID = identificationStore.tracks[track.id]?.musicBrainzRecordingID {
+                key = "mb-recording:\(recordingID)"
+            } else {
+                key = "fuzzy:\(duplicateFingerprint(for: track))"
+            }
+            buckets[key, default: []].append(track.id)
+        }
+
+        duplicateGroups = buckets
+            .filter { $0.value.count > 1 }
+            .map { key, ids in
+                let preferred = identificationStore.preferredDuplicateTrackID[key] ?? ids[0]
+                let reason = key.hasPrefix("mb-recording:")
+                    ? "Same MusicBrainz recording"
+                    : "Likely duplicate (title, artist, duration)"
+                return DuplicateTrackGroup(id: key, trackIDs: ids, preferredTrackID: preferred, reason: reason)
+            }
+            .sorted { $0.trackIDs.count > $1.trackIDs.count }
+    }
+
+    private func persistIdentification() {
+        guard let data = try? JSONEncoder().encode(identificationStore) else { return }
+        try? data.write(to: identificationURL, options: .atomic)
     }
 
     private struct FavoritesPayload: Codable {
@@ -96,8 +219,12 @@ class LibraryStore: ObservableObject {
         var artists: [String]?
     }
 
+    func refreshBrowseGroups() {
+        recomputeGroups()
+    }
+
     private func recomputeGroups() {
-        let snapshot = tracks
+        let snapshot = tracksForGrouping
         Task(priority: .userInitiated) {
             async let albums = Task.detached(priority: .userInitiated) { groupAlbums(from: snapshot) }.value
             async let artists = Task.detached(priority: .userInitiated) { groupArtists(from: snapshot) }.value

@@ -85,6 +85,22 @@ struct PlayerView: View {
                         .lineLimit(1)
                 }
 
+                if engine.isRadioActive, let radioLabel = engine.radioLabel {
+                    HStack(spacing: 6) {
+                        Image(systemName: "dot.radiowaves.left.and.right")
+                            .font(.caption)
+                        Text(radioLabel)
+                            .font(.caption.weight(.medium))
+                        Button("Stop") {
+                            engine.stopRadio()
+                        }
+                        .buttonStyle(.plain)
+                        .font(.caption2)
+                        .foregroundStyle(theme.accent)
+                    }
+                    .foregroundStyle(theme.accent)
+                }
+
                 if let album = engine.currentTrack?.album, !album.isEmpty {
                     Menu {
                         if let libraryTrack = currentLibraryTrack,
@@ -108,6 +124,11 @@ struct PlayerView: View {
                                 navigation.openAlbum(albumGroup)
                             } label: {
                                 Label("View Album", systemImage: "square.stack")
+                            }
+                            Button {
+                                engine.startRadio(seed: .album(albumGroup), store: library)
+                            } label: {
+                                Label("Album Radio", systemImage: "dot.radiowaves.left.and.right")
                             }
                         }
                     } label: {

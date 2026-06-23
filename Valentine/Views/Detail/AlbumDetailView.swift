@@ -11,6 +11,7 @@ struct AlbumDetailView: View {
     @ObservedObject var library: LibraryStore
     @EnvironmentObject var theme: AlbumTheme
     let onBack: () -> Void
+    var onOpenAlbum: ((AlbumGroup) -> Void)? = nil
 
     @State private var detail: EnrichedAlbumDetail?
     @State private var isLoading = true
@@ -71,6 +72,16 @@ struct AlbumDetailView: View {
                                         .glassEffect(.regular, in: Capsule())
                                 }
                                 .buttonStyle(.plain)
+
+                                Button(action: { engine.startRadio(seed: .album(album), store: library) }) {
+                                    Label("Radio", systemImage: "dot.radiowaves.left.and.right")
+                                        .font(.subheadline.weight(.medium))
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 10)
+                                        .background(.ultraThinMaterial, in: Capsule())
+                                        .glassEffect(.regular, in: Capsule())
+                                }
+                                .buttonStyle(.plain)
                             }
                             .padding(.top, 4)
 
@@ -88,6 +99,34 @@ struct AlbumDetailView: View {
                                 .font(.body)
                                 .foregroundStyle(.secondary)
                                 .lineSpacing(4)
+                        }
+                    }
+
+                    let alternateVersions = library.alternateAlbumVersions(for: album)
+                    if !alternateVersions.isEmpty {
+                        GlassCard {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Other Versions")
+                                    .font(.headline)
+                                ForEach(alternateVersions) { version in
+                                    Button {
+                                        onOpenAlbum?(version)
+                                    } label: {
+                                        HStack(spacing: 12) {
+                                            CachedArtwork(url: library.artworkURL(for: version.artworkFile), size: 48, rounded: false)
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(version.title)
+                                                    .font(.subheadline.weight(.medium))
+                                                Text("\(version.tracks.count) tracks · \(version.artist)")
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                            Spacer()
+                                        }
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
                         }
                     }
 

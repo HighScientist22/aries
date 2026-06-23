@@ -19,21 +19,60 @@ actor MusicBrainzService {
             let date: String?
             let country: String?
             let labelInfo: [LabelInfo]?
+            let releaseGroup: ReleaseGroupRef?
 
             struct LabelInfo: Decodable {
                 let label: Label?
                 struct Label: Decodable { let name: String? }
+            }
+
+            struct ReleaseGroupRef: Decodable {
+                let id: String
             }
         }
         struct Artist: Decodable {
             let id: String
             let name: String?
         }
+        struct Recording: Decodable {
+            let id: String
+            let title: String?
+            let length: Int?
+            let score: Int?
+            let releases: [Release]?
+
+            struct Release: Decodable {
+                let id: String
+                let title: String?
+                let releaseGroup: ReleaseGroupRef?
+
+                struct ReleaseGroupRef: Decodable {
+                    let id: String
+                }
+            }
+        }
         let releases: [Release]?
         let artists: [Artist]?
+        let recordings: [Recording]?
     }
 
-    func lookupRelease(artist: String, album: String) async -> (id: String, date: String?, label: String?, country: String?)? {
+    struct ReleaseMatch: Sendable {
+        let id: String
+        let date: String?
+        let label: String?
+        let country: String?
+        let releaseGroupID: String?
+    }
+
+    struct RecordingMatch: Sendable {
+        let recordingID: String
+        let releaseID: String?
+        let releaseGroupID: String?
+        let title: String?
+        let confidence: Double
+    }
+
+    func lookupReleaseMatch(artist: String, album: String) async -> ReleaseMatch? {
         let query = "release:\"\(escape(album))\" AND artist:\"\(escape(artist))\""
         guard let url = URL(string: "\(baseURL)/release?query=\(encoded(query))&fmt=json&limit=5") else { return nil }
 
@@ -42,7 +81,53 @@ actor MusicBrainzService {
               let release = response.releases?.first else { return nil }
 
         let label = release.labelInfo?.first?.label?.name
-        return (release.id, release.date, label, release.country)
+        return ReleaseMatch(
+            id: release.id,
+            date: release.date,
+            label: label,
+            country: release.country,
+            releaseGroupID: release.releaseGroup?.id
+        )
+    }
+
+    func lookupRelease(artist: String, album: String) async -> (id: String, date: String?, label: String?, country: String?)? {
+        guard let match = await lookupReleaseMatch(artist: artist, album: album) else { return nil }
+        return (match.id, match.date, match.label, match.country)
+    }
+
+    func lookupRecording(artist: String, title: String, durationMs: Int?) async -> RecordingMatch? {
+        let query = "recording:\"\(escape(title))\" AND artist:\"\(escape(artist))\""
+        guard let url = URL(string: "\(baseURL)/recording?query=\(encoded(query))&fmt=json&limit=8&inc=releases") else { return nil }
+
+        guard let data = await request(url: url) else { return nil }
+        guard let response = try? JSONDecoder().decode(SearchResponse.self, from: data),
+              let recordings = response.recordings,
+              !recordings.isEmpty else { return nil }
+
+        let ranked = recordings.map { recording -> (SearchResponse.Recording, Double) in
+            var score = Double(recording.score ?? 0) / 100.0
+            let normalizedTitle = normalizeMetadataToken(recording.title ?? "")
+            let normalizedTarget = normalizeMetadataToken(title)
+            if normalizedTitle == normalizedTarget { score += 0.35 }
+            if let durationMs, let length = recording.length {
+                let delta = abs(durationMs - length)
+                if delta <= 2_000 { score += 0.35 }
+                else if delta <= 8_000 { score += 0.15 }
+            }
+            return (recording, min(score, 1.0))
+        }
+        .sorted { $0.1 > $1.1 }
+
+        guard let best = ranked.first, best.1 >= 0.45 else { return nil }
+        let recording = best.0
+        let release = recording.releases?.first
+        return RecordingMatch(
+            recordingID: recording.id,
+            releaseID: release?.id,
+            releaseGroupID: release?.releaseGroup?.id,
+            title: recording.title,
+            confidence: best.1
+        )
     }
 
     func lookupArtist(name: String) async -> String? {

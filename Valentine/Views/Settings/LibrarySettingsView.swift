@@ -3,6 +3,7 @@ import SwiftUI
 struct LibrarySettingsView: View {
     @EnvironmentObject var library: LibraryStore
     @AppStorage("scanOnLaunch") private var scanOnLaunch: Bool = true
+    @AppStorage("hideDuplicateTracks") private var hideDuplicateTracks: Bool = false
 
     var body: some View {
         Form {
@@ -11,6 +12,28 @@ struct LibrarySettingsView: View {
                 Text("When enabled the app will scan configured folders on startup and watch them for changes.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+            }
+
+            Section(header: Text("Identification")) {
+                if library.isIdentifying {
+                    ProgressView(
+                        "Identifying… \(library.identificationProgress.completed)/\(library.identificationProgress.total)",
+                        value: Double(library.identificationProgress.completed),
+                        total: Double(max(library.identificationProgress.total, 1))
+                    )
+                } else {
+                    Button("Identify Library with MusicBrainz") {
+                        library.identifyLibrary()
+                    }
+                }
+                Text("Matches tracks to MusicBrainz recordings using title, artist, and duration. Results are cached locally and used for duplicate detection and album versions.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Toggle("Hide duplicate tracks in browse", isOn: $hideDuplicateTracks)
+                    .onChange(of: hideDuplicateTracks) { _, _ in
+                        library.refreshBrowseGroups()
+                    }
             }
 
             Section(header: Text("Watched Folders")) {

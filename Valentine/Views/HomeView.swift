@@ -39,7 +39,8 @@ struct HomeView: View {
                         album: album,
                         engine: engine,
                         library: library,
-                        onBack: { withAnimation(.spring(response: 0.4, dampingFraction: 0.88)) { detailAlbum = nil } }
+                        onBack: { withAnimation(.spring(response: 0.4, dampingFraction: 0.88)) { detailAlbum = nil } },
+                        onOpenAlbum: { openAlbum($0) }
                     )
                 } else if let artist = detailArtist {
                     ArtistDetailView(
@@ -70,6 +71,12 @@ struct HomeView: View {
                         yearBrowser(year)
                     case .stats:
                         statsBrowser
+                    case .duplicates:
+                        DuplicatesView(
+                            library: library,
+                            accent: theme.accent,
+                            onOpenAlbum: { openTrackAlbum($0) }
+                        )
                     case .genre(let name):
                         genreBrowser(name)
                     case .playlist(let id):
@@ -116,6 +123,9 @@ struct HomeView: View {
                     navigation.openLibrarySearch()
                 }
                 sidebarItem(.stats, icon: "chart.bar.fill", label: "Stats")
+                if !library.duplicateGroups.isEmpty {
+                    sidebarItem(.duplicates, icon: "doc.on.doc", label: "Duplicates")
+                }
             }
 
             sidebarGroup("My Library") {
@@ -1182,7 +1192,7 @@ private struct RecentAlbumItem: Identifiable {
 }
 
 private enum HomeSection: Hashable {
-    case home, stats, albums, artists, genres, years, tracks, favorites
+    case home, stats, duplicates, albums, artists, genres, years, tracks, favorites
     case genre(String)
     case year(Int)
     case playlist(UUID)
