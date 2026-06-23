@@ -13,17 +13,15 @@ struct HomeView: View {
     @ObservedObject var engine: AudioEngine
     @ObservedObject var library: LibraryStore
     @EnvironmentObject var theme: AlbumTheme
+    @EnvironmentObject var navigation: AppNavigation
 
     @State private var selectedSection: HomeSection = .home
     @State private var activityTab: RecentActivityTab = .added
-    @State private var cachedGreeting: String = ""
-    @State private var cachedAlbums: [AlbumGroup] = []
-    @State private var cachedArtists: [ArtistGroup] = []
     @State private var detailAlbum: AlbumGroup?
     @State private var detailArtist: ArtistGroup?
 
-    private var albums: [AlbumGroup] { cachedAlbums }
-    private var artists: [ArtistGroup] { cachedArtists }
+    private var albums: [AlbumGroup] { library.albumGroups }
+    private var artists: [ArtistGroup] { library.artistGroups }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -67,16 +65,16 @@ struct HomeView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear {
-            if cachedGreeting.isEmpty { cachedGreeting = greetingText() }
-            recomputeGroups()
-            refreshHomeTheme()
-        }
-        .onChange(of: library.tracks) { _, _ in
-            recomputeGroups()
             refreshHomeTheme()
         }
         .onChange(of: library.recentlyPlayedIDs) { _, _ in
             refreshHomeTheme()
+        }
+        .onChange(of: navigation.artistNameToOpen) { _, name in
+            guard let name, !name.isEmpty,
+                  let artist = libraryArtist(matching: name, from: library.tracks) else { return }
+            openArtist(artist)
+            navigation.artistNameToOpen = nil
         }
     }
 
@@ -106,7 +104,7 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 4) {
                 sidebarAction(icon: "plus", label: "Add Music", action: importToLibrary)
                 sidebarAction(icon: "gearshape", label: "Settings") {
-                    NotificationCenter.default.post(name: .openSettings, object: nil)
+                    navigation.openSettings()
                 }
             }
             .padding(.horizontal, 12)
@@ -194,19 +192,14 @@ struct HomeView: View {
 
     private var greetingHeader: some View {
         HStack(alignment: .top) {
-            Text(cachedGreeting.isEmpty ? greetingText() : cachedGreeting)
+            Text(greetingText())
                 .font(.system(size: 40, weight: .regular, design: .serif))
                 .foregroundStyle(.primary)
 
             Spacer()
 
             Button {
-                UserDefaults.standard.set(SettingsTab.general.rawValue, forKey: "settingsOpenTab")
-                NotificationCenter.default.post(
-                    name: .openSettings,
-                    object: nil,
-                    userInfo: ["tab": SettingsTab.general.rawValue]
-                )
+                navigation.openSettings(tab: .general, focusGreeting: true)
             } label: {
                 Image(systemName: "pencil")
                     .font(.caption)
@@ -219,10 +212,10 @@ struct HomeView: View {
 
     private var statsRow: some View {
         HStack(spacing: 16) {
-            StatCard(icon: "person.fill", label: "Artists", value: artists.count, accent: theme.accent)
-            StatCard(icon: "square.stack.fill", label: "Albums", value: albums.count, accent: theme.accent)
-            StatCard(icon: "music.note", label: "Tracks", value: library.tracks.count, accent: theme.accent)
-            StatCard(
+            HomeStatCard(icon: "person.fill", label: "Artists", value: artists.count, accent: theme.accent)
+            HomeStatCard(icon: "square.stack.fill", label: "Albums", value: albums.count, accent: theme.accent)
+            HomeStatCard(icon: "music.note", label: "Tracks", value: library.tracks.count, accent: theme.accent)
+            HomeStatCard(
                 icon: "clock.fill",
                 label: "Hours",
                 value: Int(library.tracks.reduce(0) { $0 + $1.duration } / 3600),
@@ -356,7 +349,7 @@ struct HomeView: View {
                 if !albums.isEmpty {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 180), spacing: 20)], spacing: 24) {
                         ForEach(albums) { album in
-                            MediaTile(
+                            LibraryMediaTile(
                                 title: album.title,
                                 subtitle: album.artist,
                                 artworkURL: library.artworkURL(for: album.artworkFile),
@@ -372,7 +365,7 @@ struct HomeView: View {
                 if !artists.isEmpty {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 180), spacing: 20)], spacing: 24) {
                         ForEach(artists) { artist in
-                            MediaTile(
+                            LibraryMediaTile(
                                 title: artist.name,
                                 subtitle: "\(artist.tracks.count) tracks",
                                 artworkURL: library.artworkURL(for: artist.artworkFile),
@@ -399,7 +392,7 @@ struct HomeView: View {
 
                 LazyVStack(spacing: 2) {
                     ForEach(library.tracks) { track in
-                        TrackListRow(
+                        LibraryTrackRow(
                             track: track,
                             artworkURL: library.artworkURL(for: track),
                             accent: theme.accent
@@ -415,11 +408,11 @@ struct HomeView: View {
     // MARK: - Rows
 
     private func albumRow(_ title: LocalizedStringKey, albums: [AlbumGroup]) -> some View {
-        HomeRow(title: title) {
+        HomeSectionRow(title: title) {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 18) {
                     ForEach(albums) { album in
-                        MediaTile(
+                        LibraryMediaTile(
                             title: album.title,
                             subtitle: album.artist,
                             artworkURL: library.artworkURL(for: album.artworkFile),
@@ -437,11 +430,11 @@ struct HomeView: View {
     }
 
     private func artistRow(_ title: LocalizedStringKey, artists: [ArtistGroup]) -> some View {
-        HomeRow(title: title) {
+        HomeSectionRow(title: title) {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 18) {
                     ForEach(artists) { artist in
-                        MediaTile(
+                        LibraryMediaTile(
                             title: artist.name,
                             subtitle: "\(artist.tracks.count) tracks",
                             artworkURL: library.artworkURL(for: artist.artworkFile),
@@ -511,10 +504,14 @@ struct HomeView: View {
 
     private func refreshHomeTheme() {
         let hero = library.recentlyPlayed.first ?? library.tracks.first
-        guard let hero,
-              let url = library.artworkURL(for: hero),
-              let image = NSImage(contentsOf: url) else { return }
-        theme.update(from: image, key: "home-\(hero.id.uuidString)")
+        guard let hero, let url = library.artworkURL(for: hero) else { return }
+        let key = "home-\(hero.id.uuidString)"
+        Task {
+            guard let image = await ArtworkLoader.shared.image(at: url, maxPixelSize: 256) else { return }
+            await MainActor.run {
+                theme.update(from: image, key: key)
+            }
+        }
     }
 
     private func play(_ track: LibraryTrack) {
@@ -561,44 +558,17 @@ struct HomeView: View {
     }
 
     private func albumsForArtist(_ artist: ArtistGroup) -> [AlbumGroup] {
-        albums(forArtist: artist, in: albums)
+        matchingAlbums(forArtist: artist, in: albums)
     }
 
     private func importToLibrary() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = true
-        panel.allowedContentTypes = [.audio, .folder]
-        if panel.runModal() == .OK {
-            library.importFiles(panel.urls)
-        }
-    }
-
-    private func recomputeGroups() {
-        let tracks = library.tracks
-        Task.detached(priority: .utility) {
-            let groupedAlbums = groupAlbums(from: tracks)
-            let groupedArtists: [ArtistGroup] = {
-                let grouped = Dictionary(grouping: tracks) { $0.albumArtist }
-                return grouped.map { name, tracks in
-                    ArtistGroup(
-                        name: name,
-                        artworkFile: tracks.first(where: { $0.artworkFile != nil })?.artworkFile,
-                        tracks: tracks.sorted { $0.dateAdded < $1.dateAdded }
-                    )
-                }
-                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            }()
-            await MainActor.run {
-                self.cachedAlbums = groupedAlbums
-                self.cachedArtists = groupedArtists
-            }
-        }
+        let urls = MusicImportPanel.pickFiles(allowFolders: true)
+        guard !urls.isEmpty else { return }
+        library.importFiles(urls)
     }
 }
 
-// MARK: - Types
+// MARK: - Home-only types
 
 private struct RecentAlbumItem: Identifiable {
     let album: AlbumGroup
@@ -612,276 +582,4 @@ private enum HomeSection: Hashable {
 
 private enum RecentActivityTab {
     case played, added
-}
-
-// MARK: - Grouping
-
-struct AlbumGroup: Identifiable {
-    let title: String
-    let artist: String
-    let artworkFile: String?
-    let tracks: [LibraryTrack]
-    var id: String { title + artist }
-}
-
-struct ArtistGroup: Identifiable {
-    let name: String
-    let artworkFile: String?
-    let tracks: [LibraryTrack]
-    var id: String { name }
-}
-
-func groupAlbums(from tracks: [LibraryTrack]) -> [AlbumGroup] {
-    let grouped = Dictionary(grouping: tracks) { $0.album ?? $0.artist }
-    return grouped.map { key, group in
-        let ordered = group.sorted { $0.dateAdded < $1.dateAdded }
-        return AlbumGroup(
-            title: key,
-            artist: ordered.first?.artist ?? "Unknown Artist",
-            artworkFile: ordered.first(where: { $0.artworkFile != nil })?.artworkFile,
-            tracks: ordered
-        )
-    }
-    .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-}
-
-func artistGroup(named name: String, from tracks: [LibraryTrack]) -> ArtistGroup {
-    let matching = tracks.filter { $0.albumArtist == name || $0.artist == name }
-    return ArtistGroup(
-        name: name,
-        artworkFile: matching.first(where: { $0.artworkFile != nil })?.artworkFile,
-        tracks: matching.sorted { $0.dateAdded > $1.dateAdded }
-    )
-}
-
-func albums(forArtist artist: ArtistGroup, in albums: [AlbumGroup]) -> [AlbumGroup] {
-    albums.filter { album in
-        album.tracks.contains { $0.albumArtist == artist.name || $0.artist == artist.name }
-    }
-}
-
-extension LibraryStore {
-    func artworkURL(for file: String?) -> URL? {
-        artworkURL(forFilename: file)
-    }
-}
-
-// MARK: - Components
-
-private struct StatCard: View {
-    let icon: String
-    let label: String
-    let value: Int
-    let accent: Color
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundStyle(accent)
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text("\(value)")
-                .font(.system(size: 28, weight: .light, design: .rounded))
-                .foregroundStyle(.primary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.ultraThinMaterial.opacity(0.5))
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        }
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(.white.opacity(0.1), lineWidth: 1)
-        )
-    }
-}
-
-private struct ActivityAlbumTile: View {
-    let title: String
-    let subtitle: String
-    let badge: String?
-    let artworkURL: URL?
-    let accent: Color
-    let onOpen: () -> Void
-    let onPlay: () -> Void
-    @State private var isHovered = false
-
-    private let artSize: CGFloat = 136
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ZStack(alignment: .bottomTrailing) {
-                Button(action: onOpen) {
-                    CachedArtwork(url: artworkURL, size: artSize, rounded: false)
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        .overlay {
-                            if let badge {
-                                VStack {
-                                    Spacer()
-                                    HStack {
-                                        Text(badge)
-                                            .font(.caption2.weight(.medium))
-                                            .foregroundStyle(.white)
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
-                                            .background(.black.opacity(0.55), in: Capsule())
-                                        Spacer()
-                                    }
-                                    .padding(8)
-                                }
-                            }
-                        }
-                }
-                .buttonStyle(.plain)
-
-                if isHovered {
-                    Button(action: onPlay) {
-                        Image(systemName: "play.fill")
-                            .font(.title3)
-                            .foregroundStyle(.white)
-                            .padding(10)
-                            .background(accent.opacity(0.9), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(8)
-                }
-            }
-
-            Button(action: onOpen) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.7))
-                        .lineLimit(1)
-                }
-                .frame(width: artSize, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-        }
-        .frame(width: artSize)
-        .scrollTransition(.interactive, axis: .horizontal) { content, phase in
-            content
-                .opacity(phase.isIdentity ? 1 : 0.85)
-                .scaleEffect(phase.isIdentity ? 1 : 0.96)
-        }
-        .scaleEffect(isHovered ? 1.02 : 1)
-        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: isHovered)
-        .onHover { isHovered = $0 }
-    }
-}
-
-private struct TrackListRow: View {
-    let track: LibraryTrack
-    let artworkURL: URL?
-    let accent: Color
-    let action: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                CachedArtwork(url: artworkURL, size: 44, rounded: false)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(track.title)
-                        .font(.subheadline.weight(.medium))
-                        .lineLimit(1)
-                    Text(track.artist)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer()
-                Text(track.duration.formatTime())
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                Image(systemName: "play.fill")
-                    .font(.caption)
-                    .foregroundStyle(accent)
-                    .opacity(isHovered ? 1 : 0)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isHovered ? accent.opacity(0.1) : .clear)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-    }
-}
-
-private struct HomeRow<Content: View>: View {
-    let title: LocalizedStringKey
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(title)
-                .font(.title3.weight(.semibold))
-            content
-        }
-    }
-}
-
-private struct MediaTile: View {
-    enum Style { case album, artist }
-
-    let title: String
-    let subtitle: String
-    let artworkURL: URL?
-    let style: Style
-    let accent: Color
-    let onOpen: () -> Void
-    let onPlay: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ZStack(alignment: .bottomTrailing) {
-                Button(action: onOpen) {
-                    CachedArtwork(url: artworkURL, size: 148, rounded: style == .artist)
-                        .scaleEffect(isHovered ? 1.02 : 1.0)
-                }
-                .buttonStyle(.plain)
-
-                if isHovered {
-                    Button(action: onPlay) {
-                        Image(systemName: "play.fill")
-                            .font(.title3)
-                            .foregroundStyle(.white)
-                            .padding(10)
-                            .background(accent.opacity(0.9), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(8)
-                }
-            }
-
-            Button(action: onOpen) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.subheadline.weight(.medium))
-                        .lineLimit(1)
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .frame(width: 148, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-        }
-        .animation(.spring(response: 0.28, dampingFraction: 0.75), value: isHovered)
-        .onHover { isHovered = $0 }
-    }
 }

@@ -3,6 +3,7 @@ import AppKit
 
 struct PlaylistView: View {
     @ObservedObject var engine: AudioEngine
+    @EnvironmentObject var navigation: AppNavigation
     
     @State private var searchText = ""
     @State private var isSearchVisible = false
@@ -52,8 +53,7 @@ struct PlaylistView: View {
                 }
                 Spacer()
                 Button(action: {
-                    UserDefaults.standard.set(SettingsTab.general.rawValue, forKey: "settingsOpenTab")
-                    NotificationCenter.default.post(name: .openSettings, object: nil, userInfo: ["tab": SettingsTab.general.rawValue])
+                    navigation.openSettings(tab: .general, focusGreeting: true)
                 }) {
                     Image(systemName: "pencil")
                 }

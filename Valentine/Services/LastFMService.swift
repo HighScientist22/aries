@@ -1,6 +1,5 @@
 import Foundation
 import CryptoKit
-import SwiftUI
 import Combine
 
 class LastFMService: ObservableObject {
@@ -218,11 +217,19 @@ class LastFMService: ObservableObject {
         let preferred = ["extralarge", "large", "medium"]
         for size in preferred {
             if let urlString = images.first(where: { ($0["size"] as? String) == size })?["#text"] as? String,
-               let url = URL(string: urlString), !urlString.isEmpty {
+               let url = URL(string: urlString),
+               !urlString.isEmpty,
+               !Self.isPlaceholderImageURL(urlString) {
                 return url
             }
         }
         return nil
+    }
+
+    /// Last.fm returns a generic star image when no artist photo exists.
+    private static func isPlaceholderImageURL(_ urlString: String) -> Bool {
+        urlString.contains("2a96cbd8-b460-951c-d455-ee949191d192")
+            || urlString.contains("avatar70s")
     }
 
     private func cleanWiki(_ text: String?) -> String? {

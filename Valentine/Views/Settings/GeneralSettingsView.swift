@@ -55,6 +55,7 @@ struct GeneralSettingsView: View {
     @AppStorage("miniPlayerGlassMode") private var miniPlayerGlassMode = 0
     @AppStorage("appTheme") private var appTheme = 0
     @AppStorage("customGreeting") private var customGreeting: String = ""
+    @EnvironmentObject var navigation: AppNavigation
     @State private var selectGreetingText: Bool = false
 
     var body: some View {
@@ -99,22 +100,13 @@ struct GeneralSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { notification in
-            if let tab = notification.userInfo?["tab"] as? String, tab == SettingsTab.general.rawValue {
-                selectGreetingText = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    selectGreetingText = false
-                }
+        .onChange(of: navigation.focusGreetingField) { _, focus in
+            guard focus else { return }
+            selectGreetingText = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                selectGreetingText = false
             }
-        }
-        .onAppear {
-            if let raw = UserDefaults.standard.string(forKey: "settingsOpenTab"), raw == SettingsTab.general.rawValue {
-                selectGreetingText = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    selectGreetingText = false
-                }
-                UserDefaults.standard.removeObject(forKey: "settingsOpenTab")
-            }
+            navigation.focusGreetingField = false
         }
     }
 }

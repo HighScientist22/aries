@@ -3,6 +3,7 @@ import SwiftUI
 struct PlayerView: View {
     @ObservedObject var engine: AudioEngine
     @EnvironmentObject var theme: AlbumTheme
+    @EnvironmentObject var navigation: AppNavigation
     var togglePlaylist: () -> Void
     var isPlaylistVisible: Bool
     var showToggle: Bool
@@ -67,11 +68,7 @@ struct PlayerView: View {
 
                 if let artist = engine.currentTrack?.artist, !artist.isEmpty {
                     Button {
-                        NotificationCenter.default.post(
-                            name: .openArtistDetail,
-                            object: nil,
-                            userInfo: ["artistName": artist]
-                        )
+                        navigation.openArtist(artist)
                     } label: {
                         Text(artist)
                             .font(.body)

@@ -15,7 +15,7 @@ struct LibrarySettingsView: View {
 
             Section(header: Text("Watched Folders")) {
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(library.watchedFolders, id: \ .self) { url in
+                    ForEach(library.watchedFolders, id: \.self) { url in
                         HStack {
                             Text(url.lastPathComponent)
                                 .lineLimit(1)
@@ -40,13 +40,8 @@ struct LibrarySettingsView: View {
     }
 
     private func addFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url {
-            library.addWatchedFolder(url)
-        }
+        guard let url = MusicImportPanel.pickFiles(allowFolders: true, allowMultiple: false).first else { return }
+        library.addWatchedFolder(url)
     }
 }
 

@@ -11,10 +11,12 @@ import Darwin
 @MainActor
 class LibraryStore: ObservableObject {
     @Published private(set) var tracks: [LibraryTrack] = []
+    @Published private(set) var albumGroups: [AlbumGroup] = []
+    @Published private(set) var artistGroups: [ArtistGroup] = []
     @Published private(set) var recentlyPlayedIDs: [UUID] = []
     @Published private(set) var isImporting = false
 
-    private let supportedExtensions = Set(["mp3", "m4a", "wav", "aac", "flac", "ogg", "aiff", "alac"])
+    private let supportedExtensions = SupportedAudioFormats.extensions
     private let recentlyPlayedLimit = 25
 
     private let baseURL: URL
@@ -54,6 +56,19 @@ class LibraryStore: ObservableObject {
         if let data = try? Data(contentsOf: recentURL),
            let decoded = try? JSONDecoder().decode([UUID].self, from: data) {
             recentlyPlayedIDs = decoded
+        }
+        recomputeGroups()
+    }
+
+    private func recomputeGroups() {
+        let snapshot = tracks
+        Task.detached(priority: .utility) {
+            let albums = groupAlbums(from: snapshot)
+            let artists = groupArtists(from: snapshot)
+            await MainActor.run {
+                self.albumGroups = albums
+                self.artistGroups = artists
+            }
         }
     }
 
@@ -99,6 +114,10 @@ class LibraryStore: ObservableObject {
         artworkURL(forFilename: track.artworkFile)
     }
 
+    func artworkURL(for file: String?) -> URL? {
+        artworkURL(forFilename: file)
+    }
+
     func artworkURL(forFilename file: String?) -> URL? {
         guard let file else { return nil }
         return artworkDirURL.appendingPathComponent(file)
@@ -131,38 +150,28 @@ class LibraryStore: ObservableObject {
         guard !toImport.isEmpty else { return }
 
         var newRecords: [LibraryTrack] = []
-
-        // Limit concurrent metadata loads to avoid overwhelming IO (2 on startup).
-        let concurrency = 2
-        let semaphore = DispatchSemaphore(value: concurrency)
+        let artworkDir = artworkDirURL
+        let limit = min(8, max(4, ProcessInfo.processInfo.activeProcessorCount))
 
         await withTaskGroup(of: LibraryTrack?.self) { group in
-            for url in toImport {
-                semaphore.wait()
+            var iterator = toImport.makeIterator()
+
+            func enqueueNext() {
+                guard let url = iterator.next() else { return }
                 group.addTask {
-                    defer { semaphore.signal() }
-                    guard let bookmark = try? url.bookmarkData() else { return nil }
-                    var track = Track(url: url)
-                    await track.loadMetadata()
-                    let artworkFile = await MainActor.run { self.saveArtwork(track.nsImage) }
-                    let record = LibraryTrack(
-                        id: UUID(),
-                        bookmark: bookmark,
-                        title: track.title,
-                        artist: track.artist,
-                        album: track.album,
-                        duration: track.duration,
-                        artworkFile: artworkFile,
-                        dateAdded: Date()
-                    )
-                    return record
+                    await Self.importTrack(from: url, artworkDir: artworkDir)
                 }
+            }
+
+            for _ in 0..<min(limit, toImport.count) {
+                enqueueNext()
             }
 
             for await maybeRecord in group {
                 if let record = maybeRecord {
                     newRecords.append(record)
                 }
+                enqueueNext()
             }
         }
 
@@ -173,6 +182,7 @@ class LibraryStore: ObservableObject {
                 tracks.insert(r, at: 0)
             }
             persist()
+            recomputeGroups()
         }
     }
 
@@ -207,6 +217,7 @@ class LibraryStore: ObservableObject {
         }
 
         persist()
+        recomputeGroups()
     }
 
     /// Scans sensible default folders (and any user-configured folders) for
@@ -362,6 +373,7 @@ class LibraryStore: ObservableObject {
         }
         tracks.removeAll { $0.id == track.id }
         persist()
+        recomputeGroups()
     }
 
     func clear() {
@@ -369,6 +381,7 @@ class LibraryStore: ObservableObject {
         try? FileManager.default.createDirectory(at: artworkDirURL, withIntermediateDirectories: true)
         tracks.removeAll()
         persist()
+        recomputeGroups()
     }
 
     // MARK: - Helpers
@@ -406,12 +419,33 @@ class LibraryStore: ObservableObject {
     }
 
     private func saveArtwork(_ image: NSImage?) -> String? {
+        Self.saveArtworkJPEG(image, to: artworkDirURL)
+    }
+
+    private static func importTrack(from url: URL, artworkDir: URL) async -> LibraryTrack? {
+        guard let bookmark = try? url.bookmarkData() else { return nil }
+        var track = Track(url: url)
+        await track.loadMetadata()
+        let artworkFile = saveArtworkJPEG(track.nsImage, to: artworkDir)
+        return LibraryTrack(
+            id: UUID(),
+            bookmark: bookmark,
+            title: track.title,
+            artist: track.artist,
+            album: track.album,
+            duration: track.duration,
+            artworkFile: artworkFile,
+            dateAdded: Date()
+        )
+    }
+
+    private static func saveArtworkJPEG(_ image: NSImage?, to dir: URL) -> String? {
         guard let image,
               let tiff = image.tiffRepresentation,
               let rep = NSBitmapImageRep(data: tiff),
               let jpeg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else { return nil }
         let name = "\(UUID().uuidString).jpg"
-        let destination = artworkDirURL.appendingPathComponent(name)
+        let destination = dir.appendingPathComponent(name)
         do {
             try jpeg.write(to: destination)
             return name

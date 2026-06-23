@@ -26,9 +26,14 @@ final class AlbumTheme: ObservableObject {
             apply(cached.accent, cached.background)
             return
         }
-        let colors = Self.extract(from: image)
-        if let key { cache[key] = colors }
-        apply(colors.accent, colors.background)
+
+        Task.detached(priority: .utility) {
+            let colors = Self.extract(from: image)
+            await MainActor.run {
+                if let key { self.cache[key] = colors }
+                self.apply(colors.accent, colors.background)
+            }
+        }
     }
 
     func reset() {
@@ -47,7 +52,7 @@ final class AlbumTheme: ObservableObject {
 
     // Downsample to a small grid, bucket colors, and pick the most saturated
     // populous bucket as the accent plus a darkened pair for the background.
-    private static func extract(from image: NSImage) -> (accent: NSColor, background: [NSColor]) {
+    nonisolated private static func extract(from image: NSImage) -> (accent: NSColor, background: [NSColor]) {
         let side = 48
         guard let bitmap = downsample(image, side: side) else {
             return (.controlAccentColor, [Color(NSColor.windowBackgroundColor)].map { NSColor($0) })
@@ -91,7 +96,7 @@ final class AlbumTheme: ObservableObject {
     }
 
     // Prefer buckets that are both populous and saturated.
-    private static func score(_ bucket: (count: Int, r: CGFloat, g: CGFloat, b: CGFloat)) -> CGFloat {
+    nonisolated private static func score(_ bucket: (count: Int, r: CGFloat, g: CGFloat, b: CGFloat)) -> CGFloat {
         let n = CGFloat(bucket.count)
         let r = bucket.r / n, g = bucket.g / n, b = bucket.b / n
         let maxC = max(r, g, b), minC = min(r, g, b)
@@ -99,7 +104,7 @@ final class AlbumTheme: ObservableObject {
         return n * (0.4 + saturation)
     }
 
-    private static func downsample(_ image: NSImage, side: Int) -> NSBitmapImageRep? {
+    nonisolated private static func downsample(_ image: NSImage, side: Int) -> NSBitmapImageRep? {
         guard let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side,
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,

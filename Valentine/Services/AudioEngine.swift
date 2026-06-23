@@ -228,24 +228,15 @@ class AudioEngine: ObservableObject {
 
     #if os(macOS)
     func showAddFileDialog() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowedContentTypes = [.audio]
-        if panel.runModal() == .OK {
-            self.addTracks(panel.urls)
-        }
+        let urls = MusicImportPanel.pickFiles(allowFolders: false)
+        guard !urls.isEmpty else { return }
+        addTracks(urls)
     }
 
     func showAddFolderDialog() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        if panel.runModal() == .OK {
-            self.addTracks(panel.urls)
-        }
+        let urls = MusicImportPanel.pickFiles(allowFolders: true)
+        guard !urls.isEmpty else { return }
+        addTracks(urls)
     }
     #endif
 
@@ -261,7 +252,12 @@ class AudioEngine: ObservableObject {
 
     // Replaces the queue with tracks resolved from the persistent library and
     // starts playback at `startIndex`.
-    func playFromLibrary(_ libraryTracks: [LibraryTrack], startIndex: Int, store: LibraryStore) {
+    func playFromLibrary(
+        _ libraryTracks: [LibraryTrack],
+        startIndex: Int,
+        store: LibraryStore,
+        shuffleTracks: Bool = false
+    ) {
         Task {
             stopPlayback()
             queue.removeAll()
@@ -269,7 +265,12 @@ class AudioEngine: ObservableObject {
             currentTrackIndex = nil
             self.libraryStore = store
 
-            for libTrack in libraryTracks {
+            var sourceTracks = libraryTracks
+            if shuffleTracks {
+                sourceTracks.shuffle()
+            }
+
+            for libTrack in sourceTracks {
                 guard let url = store.resolveURL(for: libTrack) else { continue }
 
                 var track = Track(url: url)
@@ -277,7 +278,8 @@ class AudioEngine: ObservableObject {
                 track.artist = libTrack.artist
                 track.album = libTrack.album
                 track.duration = libTrack.duration
-                if let artURL = store.artworkURL(for: libTrack), let image = NSImage(contentsOf: artURL) {
+                if let artURL = store.artworkURL(for: libTrack),
+                   let image = await ArtworkLoader.shared.image(at: artURL, maxPixelSize: 512) {
                     track.nsImage = image
                     track.albumArt = Image(nsImage: image)
                 }
@@ -296,7 +298,7 @@ class AudioEngine: ObservableObject {
         Task {
             var audioURLs: [URL] = []
             let fileManager = FileManager.default
-            let supportedExtensions = Set(["mp3", "m4a", "wav", "aac", "flac", "ogg", "aiff", "alac"])
+            let supportedExtensions = SupportedAudioFormats.extensions
 
             for url in urls {
                 var isDirectory: ObjCBool = false
@@ -358,7 +360,7 @@ class AudioEngine: ObservableObject {
         LastFMService.shared.updateNowPlaying(track: track.title, artist: track.artist, album: track.album, duration: Int(track.duration))
         ListenBrainzService.shared.updateNowPlaying(track: track.title, artist: track.artist, album: track.album)
 
-        generateWaveform(for: track.url)
+        generateWaveform(for: track.url, generation: playbackGeneration)
 
         if autoPlay {
             play()
@@ -590,53 +592,109 @@ class AudioEngine: ObservableObject {
         }
     }
 
-    private func generateWaveform(for url: URL) {
-        Task.detached {
+    private func generateWaveform(for url: URL, generation: Int) {
+        Task.detached(priority: .utility) {
             do {
+                if let cached = Self.loadCachedWaveform(for: url) {
+                    await MainActor.run {
+                        guard self.playbackGeneration == generation else { return }
+                        self.waveformPoints = cached
+                    }
+                    return
+                }
+
                 let file = try AVAudioFile(forReading: url)
                 let format = file.processingFormat
-                let frameCount = AVAudioFrameCount(file.length)
-
-                guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return }
-                try file.read(into: buffer)
-
-                guard let floatChannelData = buffer.floatChannelData else { return }
-
                 let channelCount = Int(format.channelCount)
-                let length = Int(buffer.frameLength)
+                let totalFrames = Int(file.length)
+                guard totalFrames > 0 else { return }
 
                 let targetSamples = 100
-                let samplesPerPoint = max(1, length / targetSamples)
+                let samplesPerPoint = max(1, totalFrames / targetSamples)
+                let chunkSize: AVAudioFrameCount = 16_384
 
-                var points: [Float] = []
+                var peaks = [Float](repeating: 0, count: targetSamples)
+                var globalFrame = 0
+                var pointIndex = 0
+                var pointMax: Float = 0
 
-                for i in 0..<targetSamples {
-                    let startIdx = i * samplesPerPoint
-                    let endIdx = min(startIdx + samplesPerPoint, length)
-                    var maxAmplitude: Float = 0
+                while globalFrame < totalFrames {
+                    let framesToRead = min(chunkSize, AVAudioFrameCount(totalFrames - globalFrame))
+                    guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: framesToRead) else { break }
+                    try file.read(into: buffer, frameCount: framesToRead)
 
-                    for j in startIdx..<endIdx {
+                    let length = Int(buffer.frameLength)
+                    guard let floatChannelData = buffer.floatChannelData else { break }
+
+                    for frame in 0..<length {
+                        guard pointIndex < targetSamples else { break }
+                        var samplePeak: Float = 0
                         for channel in 0..<channelCount {
-                            let value = abs(floatChannelData[channel][j])
-                            if value > maxAmplitude {
-                                maxAmplitude = value
-                            }
+                            samplePeak = max(samplePeak, abs(floatChannelData[channel][frame]))
+                        }
+                        pointMax = max(pointMax, samplePeak)
+
+                        let framesSeen = globalFrame + frame + 1
+                        let nextBoundary = min(totalFrames, (pointIndex + 1) * samplesPerPoint)
+                        if framesSeen >= nextBoundary {
+                            peaks[pointIndex] = pointMax
+                            pointIndex += 1
+                            pointMax = 0
                         }
                     }
-                    points.append(maxAmplitude)
+
+                    globalFrame += length
                 }
 
-                let overallMax = points.max() ?? 1.0
-                let normalized = points.map { $0 / overallMax }
+                while pointIndex < targetSamples {
+                    peaks[pointIndex] = pointMax
+                    pointIndex += 1
+                    pointMax = 0
+                }
+
+                let overallMax = peaks.max() ?? 1
+                let normalized = peaks.map { $0 / max(overallMax, 0.0001) }
+                Self.saveCachedWaveform(normalized, for: url)
 
                 await MainActor.run {
+                    guard self.playbackGeneration == generation else { return }
                     self.waveformPoints = normalized
                 }
-
             } catch {
                 print("Error generating waveform: \(error)")
             }
         }
+    }
+
+    nonisolated private static func waveformCacheURL(for url: URL) -> URL {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let dir = support.appendingPathComponent("Aries/Waveforms", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let key = url.standardizedFileURL.path
+            .data(using: .utf8)
+            .map { $0.base64EncodedString() } ?? UUID().uuidString
+        return dir.appendingPathComponent("\(key).wf")
+    }
+
+    nonisolated private static func loadCachedWaveform(for url: URL) -> [Float]? {
+        let cacheURL = waveformCacheURL(for: url)
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let modified = attrs[.modificationDate] as? Date,
+              let cacheAttrs = try? FileManager.default.attributesOfItem(atPath: cacheURL.path),
+              let cacheModified = cacheAttrs[.modificationDate] as? Date,
+              cacheModified >= modified,
+              let data = try? Data(contentsOf: cacheURL),
+              data.count == 100 * MemoryLayout<Float>.size else { return nil }
+
+        return data.withUnsafeBytes { buffer in
+            Array(buffer.bindMemory(to: Float.self))
+        }
+    }
+
+    nonisolated private static func saveCachedWaveform(_ points: [Float], for url: URL) {
+        let cacheURL = waveformCacheURL(for: url)
+        let data = points.withUnsafeBufferPointer { Data(buffer: $0) }
+        try? data.write(to: cacheURL, options: .atomic)
     }
 
     func updateCurrentTrackLyrics(with text: String) {

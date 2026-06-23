@@ -2,30 +2,12 @@ import SwiftUI
 
 struct WaveformView: View {
     @ObservedObject var engine: AudioEngine
-    
+
     var body: some View {
         VStack(spacing: 8) {
             GeometryReader { geometry in
-                HStack(spacing: 2) {
-                    if engine.waveformPoints.isEmpty {
-                        ForEach(0..<50, id: \.self) { index in
-                            let progress = CGFloat(index) / 50.0
-                            let isPlayed = progress <= currentProgress
-                            Capsule()
-                                .fill(isPlayed ? Color.primary : Color.primary.opacity(0.2))
-                                .frame(height: 10)
-                        }
-                    } else {
-                        ForEach(Array(engine.waveformPoints.enumerated()), id: \.offset) { index, point in
-                            let progress = CGFloat(index) / CGFloat(engine.waveformPoints.count)
-                            let isPlayed = progress <= currentProgress
-                            
-                            Capsule()
-                                .fill(isPlayed ? Color.primary : Color.primary.opacity(0.3))
-                                .frame(height: max(4, CGFloat(point) * geometry.size.height))
-                                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: point)
-                        }
-                    }
+                Canvas { context, size in
+                    drawWaveform(context: &context, size: size)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
@@ -36,7 +18,7 @@ struct WaveformView: View {
                         }
                 )
             }
-            
+
             HStack {
                 Text(formatTime(engine.currentTime))
                 Spacer()
@@ -47,18 +29,46 @@ struct WaveformView: View {
             .monospacedDigit()
         }
     }
-    
+
     private var currentProgress: CGFloat {
         guard engine.duration > 0 else { return 0 }
         return CGFloat(engine.currentTime / engine.duration)
     }
-    
+
+    private func drawWaveform(context: inout GraphicsContext, size: CGSize) {
+        let points = engine.waveformPoints
+        let barCount = max(points.count, 50)
+        let spacing: CGFloat = 2
+        let barWidth = max(2, (size.width - CGFloat(barCount - 1) * spacing) / CGFloat(barCount))
+        let progress = currentProgress
+
+        for index in 0..<barCount {
+            let amplitude: CGFloat
+            if points.isEmpty {
+                amplitude = 0.15
+            } else {
+                amplitude = max(0.05, CGFloat(points[index]))
+            }
+
+            let barProgress = CGFloat(index) / CGFloat(barCount)
+            let isPlayed = barProgress <= progress
+            let height = max(4, amplitude * size.height)
+            let x = CGFloat(index) * (barWidth + spacing)
+            let rect = CGRect(x: x, y: size.height - height, width: barWidth, height: height)
+            let path = Path(roundedRect: rect, cornerRadius: barWidth / 2)
+            context.fill(
+                path,
+                with: .color(isPlayed ? .primary : .primary.opacity(points.isEmpty ? 0.2 : 0.3))
+            )
+        }
+    }
+
     private func seek(to xOffset: CGFloat, in width: CGFloat) {
         let percentage = max(0, min(1, xOffset / width))
         let targetTime = TimeInterval(percentage) * engine.duration
         engine.seek(to: targetTime)
     }
-    
+
     private func formatTime(_ time: TimeInterval) -> String {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60

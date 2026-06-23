@@ -12,14 +12,14 @@ struct ContentView: View {
     @EnvironmentObject var engine: AudioEngine
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var theme: AlbumTheme
+    @EnvironmentObject var navigation: AppNavigation
     @Environment(\.colorScheme) var colorScheme
     @State private var isTargeted = false
     @State private var isPlaylistVisible = true
     @State private var showHome = false
     @State private var wasWide = true
-    @State private var windowSize: CGSize? = nil
     @State private var persistTask: Task<Void, Never>? = nil
-    @State private var presentedArtist: ArtistGroup? = nil
+    @State private var homeBackgroundImage: Image?
 
     @AppStorage("lastNormalWidth") private var lastNormalWidth: Double = 900
     @AppStorage("lastNormalHeight") private var lastNormalHeight: Double = 600
@@ -37,7 +37,7 @@ struct ContentView: View {
     var body: some View {
         GeometryReader { geometry in
             let currentWidth = geometry.size.width
-            let isWide = currentWidth > 600
+            let isWide = currentWidth >= 600
 
             ZStack {
                 if isLibraryEmpty {
@@ -71,26 +71,12 @@ struct ContentView: View {
             }
             .animation(navAnimation, value: isHomeVisible)
             .background(backgroundLayer)
-            .overlay {
-                if let artist = presentedArtist {
-                    ArtistDetailView(
-                        artist: artist,
-                        albums: albums(forArtist: artist, in: groupAlbums(from: library.tracks)),
-                        engine: engine,
-                        library: library,
-                        onBack: {
-                            withAnimation(navAnimation) { presentedArtist = nil }
-                        }
-                    )
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
+            .task(id: backgroundArtKey) {
+                await loadHomeBackgroundArtwork()
             }
-            .animation(navAnimation, value: presentedArtist?.name)
-            .onReceive(NotificationCenter.default.publisher(for: .openArtistDetail)) { note in
-                guard let name = note.userInfo?["artistName"] as? String, !name.isEmpty else { return }
-                withAnimation(navAnimation) {
-                    presentedArtist = artistGroup(named: name, from: library.tracks)
-                }
+            .onChange(of: navigation.artistNameToOpen) { _, name in
+                guard name != nil else { return }
+                withAnimation(navAnimation) { showHome = true }
             }
             .toolbar {
                 ToolbarItem(placement: .navigation) {
@@ -184,8 +170,18 @@ struct ContentView: View {
                 .ignoresSafeArea()
                 .animation(.easeInOut(duration: 0.8), value: theme.background)
 
-            if let art = backgroundArtwork {
+            if let art = engine.currentTrack?.albumArt {
                 art
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                    .clipped()
+                    .blur(radius: 90)
+                    .opacity(0.55)
+                    .ignoresSafeArea()
+                    .animation(.easeInOut(duration: 1.5), value: backgroundArtKey)
+            } else if let homeBackgroundImage {
+                homeBackgroundImage
                     .resizable()
                     .aspectRatio(contentMode: .fill)
                     .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
@@ -198,25 +194,26 @@ struct ContentView: View {
         }
     }
 
+    private func loadHomeBackgroundArtwork() async {
+        guard isHomeVisible, engine.currentTrack == nil else {
+            homeBackgroundImage = nil
+            return
+        }
+        guard let hero = library.recentlyPlayed.first ?? library.tracks.first,
+              let url = library.artworkURL(for: hero),
+              let image = await ArtworkLoader.shared.image(at: url, maxPixelSize: 512) else {
+            homeBackgroundImage = nil
+            return
+        }
+        homeBackgroundImage = Image(nsImage: image)
+    }
+
     private var backgroundArtKey: String {
         if let id = engine.currentTrack?.id { return id.uuidString }
         if let hero = library.recentlyPlayed.first ?? library.tracks.first {
             return "home-\(hero.id.uuidString)"
         }
         return "none"
-    }
-
-    private var backgroundArtwork: Image? {
-        if let art = engine.currentTrack?.albumArt {
-            return art
-        }
-        if isHomeVisible,
-           let hero = library.recentlyPlayed.first ?? library.tracks.first,
-           let url = library.artworkURL(for: hero),
-           let nsImage = NSImage(contentsOf: url) {
-            return Image(nsImage: nsImage)
-        }
-        return nil
     }
 
     private var emptyStateView: some View {
@@ -272,15 +269,10 @@ struct ContentView: View {
     }
 
     private func selectFiles(directories: Bool) {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = directories
-        panel.canChooseFiles = !directories
-        panel.allowedContentTypes = [.audio]
-
-        if panel.runModal() == .OK {
-            engine.addTracks(panel.urls)
-        }
+        let urls = MusicImportPanel.pickFiles(allowFolders: directories)
+        guard !urls.isEmpty else { return }
+        engine.addTracks(urls)
+        library.importFiles(urls)
     }
 
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
@@ -344,14 +336,6 @@ struct HoverZoomButton: View {
                 }
         }
         .buttonStyle(.plain)
-    }
-}
-
-
-struct WindowSizePreferenceKey: PreferenceKey {
-    static var defaultValue: CGSize = .zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-        value = nextValue()
     }
 }
 

@@ -5,13 +5,13 @@
 
 import Foundation
 
-@MainActor
-final class MetadataService {
+actor MetadataService {
     static let shared = MetadataService()
 
     private var albumCache: [String: EnrichedAlbumDetail] = [:]
     private var artistCache: [String: EnrichedArtistDetail] = [:]
     private let cacheURL: URL
+    private var saveTask: Task<Void, Never>?
 
     private init() {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -27,7 +27,10 @@ final class MetadataService {
 
         var detail = EnrichedAlbumDetail(title: album.title, artist: album.artist)
 
-        if let mb = await MusicBrainzService.shared.lookupRelease(artist: album.artist, album: album.title) {
+        async let musicBrainz = MusicBrainzService.shared.lookupRelease(artist: album.artist, album: album.title)
+        async let lastFM = LastFMService.shared.fetchAlbumInfo(artist: album.artist, album: album.title)
+
+        if let mb = await musicBrainz {
             detail.musicBrainzID = mb.id
             detail.releaseDate = mb.date
             detail.label = mb.label
@@ -37,16 +40,13 @@ final class MetadataService {
             }
         }
 
-        if detail.coverArtURL == nil {
-            detail.coverArtURL = libraryArtwork
-        }
-
-        let lastFM = await LastFMService.shared.fetchAlbumInfo(artist: album.artist, album: album.title)
-        if let summary = lastFM.summary { detail.summary = summary }
-        if !lastFM.tags.isEmpty { detail.tags = lastFM.tags }
+        let lastFMResult = await lastFM
+        if let summary = lastFMResult.summary { detail.summary = summary }
+        if !lastFMResult.tags.isEmpty { detail.tags = lastFMResult.tags }
+        if detail.coverArtURL == nil { detail.coverArtURL = libraryArtwork }
 
         albumCache[key] = detail
-        persist()
+        scheduleSave()
         return detail
     }
 
@@ -56,18 +56,21 @@ final class MetadataService {
 
         var detail = EnrichedArtistDetail(name: artist.name)
 
-        if let mbid = await MusicBrainzService.shared.lookupArtist(name: artist.name) {
+        async let mbid = MusicBrainzService.shared.lookupArtist(name: artist.name)
+        async let lastFM = LastFMService.shared.fetchArtistInfo(name: artist.name)
+
+        if let mbid = await mbid {
             detail.musicBrainzID = mbid
         }
 
-        let lastFM = await LastFMService.shared.fetchArtistInfo(name: artist.name)
-        if let summary = lastFM.summary { detail.summary = summary }
-        if !lastFM.tags.isEmpty { detail.tags = lastFM.tags }
-        if !lastFM.similar.isEmpty { detail.similarArtists = lastFM.similar }
-        detail.imageURL = lastFM.imageURL ?? libraryArtwork
+        let lastFMResult = await lastFM
+        if let summary = lastFMResult.summary { detail.summary = summary }
+        if !lastFMResult.tags.isEmpty { detail.tags = lastFMResult.tags }
+        if !lastFMResult.similar.isEmpty { detail.similarArtists = lastFMResult.similar }
+        detail.imageURL = libraryArtwork ?? lastFMResult.imageURL
 
         artistCache[key] = detail
-        persist()
+        scheduleSave()
         return detail
     }
 
@@ -81,6 +84,15 @@ final class MetadataService {
               let payload = try? JSONDecoder().decode(CachePayload.self, from: data) else { return }
         albumCache = payload.albums
         artistCache = payload.artists
+    }
+
+    private func scheduleSave() {
+        saveTask?.cancel()
+        saveTask = Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            persist()
+        }
     }
 
     private func persist() {

@@ -21,6 +21,7 @@ struct AriesApp: App {
     @StateObject private var engine = AudioEngine()
     @StateObject private var library = LibraryStore()
     @StateObject private var theme = AlbumTheme()
+    @StateObject private var navigation = AppNavigation()
 
     var body: some Scene {
         WindowGroup {
@@ -28,6 +29,7 @@ struct AriesApp: App {
                 .environmentObject(engine)
                 .environmentObject(library)
                 .environmentObject(theme)
+                .environmentObject(navigation)
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
@@ -45,6 +47,7 @@ struct AriesApp: App {
         Window("Settings", id: "settings") {
             SettingsView()
                 .environmentObject(library)
+                .environmentObject(navigation)
                 .preferredColorScheme(appTheme == 1 ? .light : (appTheme == 2 ? .dark : nil))
         }
         .windowStyle(.hiddenTitleBar)
@@ -56,6 +59,7 @@ struct RootView: View {
     @EnvironmentObject var engine: AudioEngine
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var theme: AlbumTheme
+    @EnvironmentObject var navigation: AppNavigation
     @Environment(\.openWindow) var openWindow
     @AppStorage("isMiniPlayerMode") private var isMiniPlayerMode = false
     @AppStorage("appTheme") private var appTheme = 0
@@ -104,10 +108,10 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .clearPlaylist)) { _ in engine.clearPlaylist() }
         .onReceive(NotificationCenter.default.publisher(for: .editLyrics)) { _ in engine.checkAndShowLyricsEditor() }
         .onReceive(NotificationCenter.default.publisher(for: .reinstallMutagen)) { _ in engine.showMutagenInstaller = true }
-        .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { notification in
-            // If a tab was specified, it will be written to UserDefaults by the
-            // sender; simply open the settings window.
+        .onChange(of: navigation.shouldOpenSettings) { _, shouldOpen in
+            guard shouldOpen else { return }
             openWindow(id: "settings")
+            navigation.shouldOpenSettings = false
         }
     }
 

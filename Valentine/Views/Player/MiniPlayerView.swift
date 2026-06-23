@@ -3,6 +3,7 @@ import AppKit
 
 struct MiniPlayerView: View {
     @ObservedObject var engine: AudioEngine
+    @EnvironmentObject var navigation: AppNavigation
     @State private var showMiniLyrics = false
     @AppStorage("miniPlayerGlassMode") private var miniPlayerGlassMode = 0
     @Environment(\.colorScheme) var colorScheme
@@ -60,8 +61,7 @@ struct MiniPlayerView: View {
                             .foregroundColor(.secondary)
                     }
                     Button(action: {
-                        UserDefaults.standard.set(SettingsTab.general.rawValue, forKey: "settingsOpenTab")
-                        NotificationCenter.default.post(name: .openSettings, object: nil, userInfo: ["tab": SettingsTab.general.rawValue])
+                        navigation.openSettings(tab: .general, focusGreeting: true)
                     }) {
                         Image(systemName: "pencil")
                     }
