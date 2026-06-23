@@ -10,11 +10,21 @@ struct SavedPlaylist: Codable, Identifiable, Hashable {
     var name: String
     var trackIDs: [UUID]
     var dateModified: Date
+    var smartRule: SmartPlaylistRule?
 
-    init(id: UUID = UUID(), name: String, trackIDs: [UUID] = [], dateModified: Date = Date()) {
+    var isSmart: Bool { smartRule != nil }
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        trackIDs: [UUID] = [],
+        dateModified: Date = Date(),
+        smartRule: SmartPlaylistRule? = nil
+    ) {
         self.id = id
         self.name = name
         self.trackIDs = trackIDs
         self.dateModified = dateModified
+        self.smartRule = smartRule
     }
 }

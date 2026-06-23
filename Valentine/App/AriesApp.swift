@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -84,6 +85,7 @@ struct RootView: View {
             updateTheme(theme: appTheme)
             configureWindow(forMiniPlayer: isMiniPlayerMode)
             theme.update(from: engine.currentTrack?.nsImage, key: engine.currentTrack?.id.uuidString)
+            engine.attachLibraryStore(library)
         }
         .onChange(of: engine.currentTrackIndex) { _, _ in
             theme.update(from: engine.currentTrack?.nsImage, key: engine.currentTrack?.id.uuidString)
@@ -115,6 +117,9 @@ struct RootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .openLibrarySearch)) { _ in
             navigation.openLibrarySearch()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            engine.persistQueueNow()
         }
     }
 

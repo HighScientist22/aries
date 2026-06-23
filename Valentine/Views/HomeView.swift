@@ -125,7 +125,7 @@ struct HomeView: View {
             Spacer()
 
             VStack(alignment: .leading, spacing: 4) {
-                sidebarAction(icon: "music.note.list", label: "New Playlist", action: createPlaylist)
+                newPlaylistMenu
                 sidebarAction(icon: "plus", label: "Add Music", action: importToLibrary)
                 sidebarAction(icon: "gearshape", label: "Settings") {
                     navigation.openSettings()
@@ -134,6 +134,53 @@ struct HomeView: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 20)
         }
+    }
+
+    private var newPlaylistMenu: some View {
+        Menu {
+            Button("New Playlist", action: createPlaylist)
+            Menu("New Smart Playlist") {
+                Button("Favorite Tracks") {
+                    openSmartPlaylist(library.createSmartPlaylist(rule: .favorites))
+                }
+                Button("Recently Played") {
+                    openSmartPlaylist(library.createSmartPlaylist(rule: .recentlyPlayed))
+                }
+                if !library.genreGroups.isEmpty {
+                    Menu("By Genre") {
+                        ForEach(library.genreGroups.prefix(24)) { genre in
+                            Button(genre.name) {
+                                openSmartPlaylist(library.createSmartPlaylist(rule: .genre(genre.name)))
+                            }
+                        }
+                    }
+                }
+                let years = Array(Set(library.tracks.compactMap(\.year))).sorted(by: >).prefix(12)
+                if !years.isEmpty {
+                    Menu("By Year") {
+                        ForEach(Array(years), id: \.self) { year in
+                            Button(String(year)) {
+                                openSmartPlaylist(library.createSmartPlaylist(rule: .year(year)))
+                            }
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "music.note.list")
+                    .font(.system(size: 13))
+                    .frame(width: 18)
+                Text("New Playlist")
+                    .font(.subheadline)
+                Spacer()
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func sidebarGroup(_ title: String, @ViewBuilder items: () -> some View) -> some View {
@@ -158,7 +205,7 @@ struct HomeView: View {
             }
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: "music.note.list")
+                Image(systemName: playlist.isSmart ? "sparkles" : "music.note.list")
                     .font(.system(size: 13, weight: .medium))
                     .frame(width: 18)
                 Text(playlist.name)
@@ -642,6 +689,12 @@ struct HomeView: View {
                     .font(.system(size: 32, weight: .regular, design: .serif))
                     .padding(.top, 24)
 
+                if playlist?.isSmart == true {
+                    Label("Smart playlist — updates automatically", systemImage: "sparkles")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
                 if playlistTracks.isEmpty {
                     Text("This playlist is empty.")
                         .foregroundStyle(.secondary)
@@ -665,10 +718,12 @@ struct HomeView: View {
                             }
                             .libraryPlaybackMenu(engine: engine, library: library, tracks: [track])
                             .contextMenu {
-                                Button(role: .destructive) {
-                                    library.removeTrack(track.id, from: playlistID)
-                                } label: {
-                                    Label("Remove from Playlist", systemImage: "minus.circle")
+                                if playlist?.isSmart != true {
+                                    Button(role: .destructive) {
+                                        library.removeTrack(track.id, from: playlistID)
+                                    } label: {
+                                        Label("Remove from Playlist", systemImage: "minus.circle")
+                                    }
                                 }
                             }
                         }
@@ -840,6 +895,10 @@ struct HomeView: View {
 
     private func createPlaylist() {
         let playlist = library.createPlaylist(named: "Playlist \(library.playlists.count + 1)")
+        openSmartPlaylist(playlist)
+    }
+
+    private func openSmartPlaylist(_ playlist: SavedPlaylist) {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
             selectedSection = .playlist(playlist.id)
             detailAlbum = nil

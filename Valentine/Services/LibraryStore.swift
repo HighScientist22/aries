@@ -173,6 +173,14 @@ class LibraryStore: ObservableObject {
         return playlist
     }
 
+    func createSmartPlaylist(named name: String? = nil, rule: SmartPlaylistRule) -> SavedPlaylist {
+        let playlist = SavedPlaylist(name: name ?? rule.defaultName, smartRule: rule)
+        playlists.append(playlist)
+        playlists.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        persistPlaylists()
+        return playlist
+    }
+
     func deletePlaylist(_ playlist: SavedPlaylist) {
         playlists.removeAll { $0.id == playlist.id }
         persistPlaylists()
@@ -187,11 +195,40 @@ class LibraryStore: ObservableObject {
     }
 
     func tracks(for playlist: SavedPlaylist) -> [LibraryTrack] {
-        playlist.trackIDs.compactMap { id in tracks.first { $0.id == id } }
+        if let rule = playlist.smartRule {
+            return resolveSmartPlaylist(rule)
+        }
+        return playlist.trackIDs.compactMap { id in tracks.first { $0.id == id } }
+    }
+
+    func resolveSmartPlaylist(_ rule: SmartPlaylistRule) -> [LibraryTrack] {
+        switch rule {
+        case .favorites:
+            return favoriteTracks
+        case .recentlyPlayed:
+            return recentlyPlayed
+        case .genre(let name):
+            if let group = genreGroups.first(where: { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
+                return group.tracks
+            }
+            return tracks.filter { track in
+                guard let genre = track.genre else { return false }
+                return genre.localizedCaseInsensitiveContains(name)
+            }
+        case .artist(let name):
+            if let group = artistGroups.first(where: { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
+                return group.tracks.sorted(by: sortTracksForAlbum)
+            }
+            return tracks.filter { $0.albumArtist == name || $0.artist == name }
+                .sorted(by: sortTracksForAlbum)
+        case .year(let year):
+            return tracks.filter { $0.year == year }.sorted(by: sortTracksForAlbum)
+        }
     }
 
     func addTracks(_ trackIDs: [UUID], to playlistID: UUID) {
         guard let index = playlists.firstIndex(where: { $0.id == playlistID }) else { return }
+        guard playlists[index].smartRule == nil else { return }
         var seen = Set(playlists[index].trackIDs)
         for id in trackIDs where seen.insert(id).inserted {
             playlists[index].trackIDs.append(id)
@@ -202,6 +239,7 @@ class LibraryStore: ObservableObject {
 
     func removeTrack(_ trackID: UUID, from playlistID: UUID) {
         guard let index = playlists.firstIndex(where: { $0.id == playlistID }) else { return }
+        guard playlists[index].smartRule == nil else { return }
         playlists[index].trackIDs.removeAll { $0 == trackID }
         playlists[index].dateModified = Date()
         persistPlaylists()

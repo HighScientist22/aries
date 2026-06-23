@@ -79,6 +79,14 @@ class AudioEngine: ObservableObject {
     // completion callbacks from flushed/replaced segments can be ignored.
     private var playbackGeneration = 0
     private var displayLink: Timer?
+    private var gaplessAheadIndex: Int?
+    private var queueSaveTask: Task<Void, Never>?
+    private var hasRestoredQueue = false
+
+    private var queueStateURL: URL {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return support.appendingPathComponent("Aries/queue.json")
+    }
 
     // Library IDs aligned to `queue`, used to record recently-played tracks.
     private var queueLibraryIDs: [UUID] = []
@@ -247,7 +255,76 @@ class AudioEngine: ObservableObject {
         self.currentTrackIndex = nil
         self.currentTime = 0
         self.duration = 0
+        self.gaplessAheadIndex = nil
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        persistQueueNow()
+    }
+
+    func attachLibraryStore(_ store: LibraryStore) {
+        libraryStore = store
+        restorePersistedQueueIfNeeded()
+    }
+
+    func persistQueueNow() {
+        guard !queueLibraryIDs.isEmpty else {
+            try? FileManager.default.removeItem(at: queueStateURL)
+            return
+        }
+        let state = PersistedQueueState(
+            libraryTrackIDs: queueLibraryIDs,
+            currentIndex: currentTrackIndex,
+            currentTime: currentTime,
+            wasPlaying: isPlaying,
+            shuffleMode: shuffleMode,
+            repeatMode: repeatMode.rawValue
+        )
+        guard let data = try? JSONEncoder().encode(state) else { return }
+        try? FileManager.default.createDirectory(
+            at: queueStateURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: queueStateURL, options: .atomic)
+    }
+
+    private func persistQueueSoon() {
+        queueSaveTask?.cancel()
+        queueSaveTask = Task {
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            guard !Task.isCancelled else { return }
+            persistQueueNow()
+        }
+    }
+
+    private func restorePersistedQueueIfNeeded() {
+        guard !hasRestoredQueue else { return }
+        hasRestoredQueue = true
+        guard queue.isEmpty, let store = libraryStore else { return }
+        guard let data = try? Data(contentsOf: queueStateURL),
+              let state = try? JSONDecoder().decode(PersistedQueueState.self, from: data),
+              !state.libraryTrackIDs.isEmpty else { return }
+
+        Task {
+            let libraryTracks = state.libraryTrackIDs.compactMap { id in
+                store.tracks.first { $0.id == id }
+            }
+            guard !libraryTracks.isEmpty else { return }
+            let resolved = await Self.resolveLibraryTracks(libraryTracks, store: store, shuffle: false)
+            guard !resolved.isEmpty else { return }
+
+            queue = resolved.map(\.track)
+            queueLibraryIDs = resolved.map(\.libraryID)
+            shuffleMode = state.shuffleMode
+            repeatMode = RepeatMode(rawValue: state.repeatMode) ?? .off
+
+            let index = state.currentIndex.flatMap { queue.indices.contains($0) ? $0 : nil } ?? 0
+            playTrack(at: index, autoPlay: false)
+            if state.currentTime > 0 {
+                seek(to: state.currentTime)
+            }
+            if state.wasPlaying {
+                play()
+            }
+        }
     }
 
     // Replaces the queue with tracks resolved from the persistent library and
@@ -309,6 +386,7 @@ class AudioEngine: ObservableObject {
                     playTrack(at: 0, autoPlay: false)
                 }
             }
+            persistQueueSoon()
         }
     }
 
@@ -415,6 +493,17 @@ class AudioEngine: ObservableObject {
         }
 
         fetchLyricsIfNeeded(for: index)
+        persistQueueSoon()
+    }
+
+    private var isGaplessEnabled: Bool {
+        UserDefaults.standard.object(forKey: "gaplessPlayback") == nil
+            ? true
+            : UserDefaults.standard.bool(forKey: "gaplessPlayback")
+    }
+
+    private var shouldUseGaplessChain: Bool {
+        isGaplessEnabled && !shuffleMode && segmentStartFrame == 0 && repeatMode != .one
     }
 
     // Schedules the current file from `segmentStartFrame` to its end. Uses the
@@ -442,6 +531,123 @@ class AudioEngine: ObservableObject {
         }
     }
 
+    private func scheduleGaplessChain(from index: Int) {
+        playerNode.stop()
+        playbackGeneration += 1
+        let generation = playbackGeneration
+        isSegmentScheduled = true
+        gaplessAheadIndex = nil
+
+        guard scheduleGaplessFile(at: index, generation: generation) else {
+            isSegmentScheduled = false
+            scheduleFromCurrentSegment()
+            return
+        }
+
+        if let next = sequentialIndex(after: index) {
+            gaplessAheadIndex = next
+            _ = scheduleGaplessFile(at: next, generation: generation)
+        }
+    }
+
+    private func scheduleGaplessFile(at index: Int, generation: Int) -> Bool {
+        guard queue.indices.contains(index) else { return false }
+        do {
+            let file = try AVAudioFile(forReading: queue[index].url)
+            playerNode.scheduleFile(file, at: nil, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleGaplessFileFinished(index: index, generation: generation)
+                }
+            }
+            return true
+        } catch {
+            print("Gapless schedule failed for \(queue[index].url): \(error)")
+            return false
+        }
+    }
+
+    private func handleGaplessFileFinished(index: Int, generation: Int) {
+        guard generation == playbackGeneration, isPlaying else { return }
+
+        if repeatMode == .one, index == currentTrackIndex {
+            seek(to: 0)
+            play()
+            return
+        }
+
+        guard let next = sequentialIndex(after: index) else {
+            stopPlayback()
+            segmentStartFrame = 0
+            currentTime = 0
+            isSegmentScheduled = false
+            gaplessAheadIndex = nil
+            persistQueueSoon()
+            return
+        }
+
+        guard index == currentTrackIndex else { return }
+
+        if gaplessAheadIndex == next {
+            applyTrackTransition(to: next)
+            gaplessAheadIndex = nil
+            if let ahead = sequentialIndex(after: next) {
+                gaplessAheadIndex = ahead
+                _ = scheduleGaplessFile(at: ahead, generation: generation)
+            }
+        } else {
+            playTrack(at: next)
+        }
+    }
+
+    private func sequentialIndex(after index: Int) -> Int? {
+        if index + 1 < queue.count { return index + 1 }
+        if repeatMode == .all, !queue.isEmpty { return 0 }
+        return nil
+    }
+
+    private func applyTrackTransition(to index: Int) {
+        guard queue.indices.contains(index) else { return }
+        let track = queue[index]
+
+        do {
+            let file = try AVAudioFile(forReading: track.url)
+            currentFile = file
+            currentFormat = file.processingFormat
+            sampleRate = file.processingFormat.sampleRate
+            frameLength = file.length
+        } catch {
+            print("Failed to open \(track.url): \(error)")
+            return
+        }
+
+        currentTrackIndex = index
+        duration = track.duration
+        currentTime = 0
+        segmentStartFrame = 0
+
+        if queueLibraryIDs.indices.contains(index) {
+            libraryStore?.markPlayed(queueLibraryIDs[index])
+        }
+
+        hasScrobbledCurrentTrack = false
+        currentTrackStartTime = Int(Date().timeIntervalSince1970)
+        LastFMService.shared.updateNowPlaying(
+            track: track.title,
+            artist: track.artist,
+            album: track.album,
+            duration: Int(track.duration)
+        )
+        ListenBrainzService.shared.updateNowPlaying(
+            track: track.title,
+            artist: track.artist,
+            album: track.album
+        )
+        generateWaveform(for: track.url, generation: playbackGeneration)
+        fetchLyricsIfNeeded(for: index)
+        updateNowPlayingInfo()
+        persistQueueSoon()
+    }
+
     func togglePlayback() {
         if isPlaying {
             pause()
@@ -454,7 +660,11 @@ class AudioEngine: ObservableObject {
         guard currentFile != nil else { return }
         startEngineIfNeeded()
         if !isSegmentScheduled {
-            scheduleFromCurrentSegment()
+            if shouldUseGaplessChain, let index = currentTrackIndex {
+                scheduleGaplessChain(from: index)
+            } else {
+                scheduleFromCurrentSegment()
+            }
         }
         playerNode.play()
         isPlaying = true
@@ -467,12 +677,14 @@ class AudioEngine: ObservableObject {
         isPlaying = false
         stopDisplayLink()
         updateNowPlayingInfo()
+        persistQueueSoon()
     }
 
     private func stopPlayback() {
         playerNode.stop()
         isPlaying = false
         isSegmentScheduled = false
+        gaplessAheadIndex = nil
         stopDisplayLink()
     }
 
@@ -529,6 +741,7 @@ class AudioEngine: ObservableObject {
 
         playerNode.stop()
         isSegmentScheduled = false
+        gaplessAheadIndex = nil
         segmentStartFrame = AVAudioFramePosition(clamped * sampleRate)
         currentTime = clamped
 
@@ -540,10 +753,13 @@ class AudioEngine: ObservableObject {
             startDisplayLink()
         }
         updateNowPlayingInfo()
+        persistQueueSoon()
     }
 
     func removeTrack(at offsets: IndexSet) {
         queue.remove(atOffsets: offsets)
+        queueLibraryIDs.remove(atOffsets: offsets)
+        persistQueueSoon()
     }
 
     func removeTracks(withIds ids: Set<UUID>) {
@@ -554,6 +770,7 @@ class AudioEngine: ObservableObject {
         }
 
         queue.remove(atOffsets: IndexSet(indicesToRemove))
+        queueLibraryIDs.remove(atOffsets: IndexSet(indicesToRemove))
 
         if let currentId = currentTrackId {
             if ids.contains(currentId) {
@@ -566,6 +783,7 @@ class AudioEngine: ObservableObject {
                 currentTrackIndex = queue.firstIndex(where: { $0.id == currentId })
             }
         }
+        persistQueueSoon()
     }
 
     // MARK: - Equalizer

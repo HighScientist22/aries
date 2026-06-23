@@ -52,6 +52,7 @@ struct SelectableTextField: NSViewRepresentable {
 struct GeneralSettingsView: View {
     @AppStorage("isGlowEffectEnabled") private var isGlowEffectEnabled = false
     @AppStorage("isNeonEffectEnabled") private var isNeonEffectEnabled = false
+    @AppStorage("gaplessPlayback") private var gaplessPlayback = true
     @AppStorage("miniPlayerGlassMode") private var miniPlayerGlassMode = 0
     @AppStorage("appTheme") private var appTheme = 0
     @AppStorage("customGreeting") private var customGreeting: String = ""
@@ -92,6 +93,13 @@ struct GeneralSettingsView: View {
                 NavigationLink(destination: EqualizerSettingsView()) {
                     Text("Open Equalizer Settings")
                 }
+            }
+
+            Section(header: Text("Playback")) {
+                Toggle("Gapless Playback", isOn: $gaplessPlayback)
+                Text("Pre-schedules the next track for seamless transitions between songs.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
 
             Section(header: Text("Synced Lyrics Effects")) {
