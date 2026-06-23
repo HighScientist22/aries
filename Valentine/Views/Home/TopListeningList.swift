@@ -10,6 +10,7 @@ struct TopListeningList: View {
     let stats: [NamedListeningStat]
     let accent: Color
     var maxRows: Int = 6
+    var onSelect: ((NamedListeningStat) -> Void)? = nil
 
     private var topStats: [NamedListeningStat] {
         Array(stats.prefix(maxRows))
@@ -38,8 +39,9 @@ struct TopListeningList: View {
         }
     }
 
+    @ViewBuilder
     private func row(_ stat: NamedListeningStat) -> some View {
-        HStack(spacing: 12) {
+        let content = HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(stat.title)
                     .font(.subheadline.weight(.medium))
@@ -67,6 +69,13 @@ struct TopListeningList: View {
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .frame(width: 44, alignment: .trailing)
+        }
+
+        if let onSelect {
+            Button { onSelect(stat) } label: { content }
+                .buttonStyle(.plain)
+        } else {
+            content
         }
     }
 

@@ -315,8 +315,28 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 32) {
                 greetingHeader
                 statsRow
+                if !library.focusMixes.isEmpty {
+                    FocusMixRow(
+                        mixes: library.focusMixes,
+                        accent: theme.accent,
+                        artworkURL: { library.artworkURL(for: $0) },
+                        onPlay: { mix, shuffle in
+                            engine.playFromLibrary(
+                                mix.tracks,
+                                startIndex: 0,
+                                store: library,
+                                shuffleTracks: shuffle
+                            )
+                        }
+                    )
+                }
                 if !library.genreListeningStats.isEmpty {
-                    GenreListeningChart(stats: library.genreListeningStats, accent: theme.accent, maxBars: 5)
+                    GenreListeningChart(
+                        stats: library.genreListeningStats,
+                        accent: theme.accent,
+                        maxBars: 5,
+                        onGenreSelected: { openGenre($0) }
+                    )
                 }
                 recentActivityPanel
                 albumRow("Albums", albums: Array(albums.prefix(12)))
@@ -668,23 +688,45 @@ struct HomeView: View {
                     .font(.system(size: 32, weight: .regular, design: .serif))
                     .padding(.top, 24)
 
-                GenreListeningChart(stats: library.genreListeningStats, accent: theme.accent)
+                GenreListeningChart(
+                    stats: library.genreListeningStats,
+                    accent: theme.accent,
+                    onGenreSelected: { openGenre($0) }
+                )
 
                 HStack(alignment: .top, spacing: 20) {
                     TopListeningList(
                         title: "Top Artists",
                         stats: library.artistListeningStats,
-                        accent: theme.accent
+                        accent: theme.accent,
+                        onSelect: { stat in
+                            if let artist = library.artistGroup(named: stat.id) {
+                                openArtist(artist)
+                            }
+                        }
                     )
                     .frame(maxWidth: .infinity)
 
                     TopListeningList(
                         title: "Top Albums",
                         stats: library.albumListeningStats,
-                        accent: theme.accent
+                        accent: theme.accent,
+                        onSelect: { stat in
+                            if let album = albums.first(where: { $0.id == stat.id }) {
+                                openAlbum(album)
+                            }
+                        }
                     )
                     .frame(maxWidth: .infinity)
                 }
+
+                ListeningTimelineView(
+                    days: library.listeningTimeline,
+                    accent: theme.accent,
+                    onSelectTrack: { track in
+                        playTrackAlbum(track)
+                    }
+                )
             }
             .padding(.horizontal, 32)
             .padding(.bottom, 48)
@@ -1033,7 +1075,16 @@ struct HomeView: View {
 
     private func openAlbum(_ album: AlbumGroup) {
         withAnimation(.spring(response: 0.4, dampingFraction: 0.88)) {
+            selectedSection = .home
             detailAlbum = album
+            detailArtist = nil
+        }
+    }
+
+    private func openGenre(_ name: String) {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+            selectedSection = .genre(name)
+            detailAlbum = nil
             detailArtist = nil
         }
     }

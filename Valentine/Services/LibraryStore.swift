@@ -25,6 +25,7 @@ class LibraryStore: ObservableObject {
 
     private let supportedExtensions = SupportedAudioFormats.extensions
     private let recentlyPlayedLimit = 25
+    private let playHistoryLimit = 500
     private var recentSaveTask: Task<Void, Never>?
     private var librarySaveTask: Task<Void, Never>?
 
@@ -123,6 +124,89 @@ class LibraryStore: ObservableObject {
         scheduleRecentSave()
     }
 
+    var listeningTimeline: [ListeningTimelineDay] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: listeningStats.playHistory) { entry in
+            calendar.startOfDay(for: entry.playedAt)
+        }
+        return grouped.map { day, entries in
+            let items = entries.compactMap { entry -> ListeningTimelineItem? in
+                guard let track = tracks.first(where: { $0.id == entry.trackID }) else { return nil }
+                return ListeningTimelineItem(id: entry.id, track: track, playedAt: entry.playedAt)
+            }
+            .sorted { $0.playedAt > $1.playedAt }
+            return ListeningTimelineDay(date: day, items: items)
+        }
+        .sorted { $0.date > $1.date }
+    }
+
+    var focusMixes: [FocusMix] {
+        var mixes: [FocusMix] = []
+
+        let recentAlbums: [AlbumGroup] = {
+            var seen = Set<String>()
+            var result: [AlbumGroup] = []
+            for entry in listeningStats.playHistory {
+                guard let track = tracks.first(where: { $0.id == entry.trackID }),
+                      let album = albumGroup(for: track),
+                      seen.insert(album.id).inserted else { continue }
+                result.append(album)
+                if result.count >= 3 { break }
+            }
+            return result
+        }()
+
+        if let album = recentAlbums.first {
+            mixes.append(FocusMix(
+                id: "jump-back",
+                title: "Jump Back In",
+                subtitle: album.title,
+                artworkFile: album.artworkFile,
+                tracks: album.tracks
+            ))
+        }
+
+        if let topGenre = genreListeningStats.first,
+           let group = genreGroups.first(where: { $0.name == topGenre.name }) {
+            mixes.append(FocusMix(
+                id: "genre-focus",
+                title: "\(topGenre.name) Focus",
+                subtitle: "Your top genre",
+                artworkFile: group.tracks.first(where: { $0.artworkFile != nil })?.artworkFile,
+                tracks: Array(group.tracks.shuffled().prefix(50))
+            ))
+        }
+
+        if favoriteTracks.count >= 3 {
+            mixes.append(FocusMix(
+                id: "favorites-focus",
+                title: "Favorites Focus",
+                subtitle: "\(favoriteTracks.count) loved tracks",
+                artworkFile: favoriteTracks.first?.artworkFile,
+                tracks: favoriteTracks.shuffled()
+            ))
+        }
+
+        let recentIDs = Set(listeningStats.playHistory.prefix(150).map(\.trackID))
+        let discoverTracks = Array(tracks.filter { !recentIDs.contains($0.id) }.shuffled().prefix(40))
+        if discoverTracks.count >= 8 {
+            mixes.append(FocusMix(
+                id: "discover",
+                title: "Discover",
+                subtitle: "Not heard lately",
+                artworkFile: discoverTracks.first?.artworkFile,
+                tracks: discoverTracks
+            ))
+        }
+
+        return mixes
+    }
+
+    func artistGroup(named name: String) -> ArtistGroup? {
+        artistGroups.first { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }
+            ?? libraryArtist(matching: name, from: tracks)
+    }
+
     func albumGroup(for track: LibraryTrack) -> AlbumGroup? {
         Aries.albumGroup(for: track, in: albumGroups) ?? Aries.albumGroup(for: track, in: tracks)
     }
@@ -204,6 +288,11 @@ class LibraryStore: ObservableObject {
         if let album = albumGroup(for: track) {
             listeningStats.albumPlayCounts[album.id, default: 0] += 1
             listeningStats.albumListenSeconds[album.id, default: 0] += track.duration
+        }
+
+        listeningStats.playHistory.insert(PlayHistoryEntry(trackID: track.id), at: 0)
+        if listeningStats.playHistory.count > playHistoryLimit {
+            listeningStats.playHistory = Array(listeningStats.playHistory.prefix(playHistoryLimit))
         }
 
         persistListeningStats()

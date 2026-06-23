@@ -115,47 +115,95 @@ struct LibrarySearchView: View {
     }
 
     private func searchAlbumRow(_ album: AlbumGroup) -> some View {
-        Button {
-            engine.playFromLibrary(album.tracks, startIndex: 0, store: library)
-            dismiss()
-        } label: {
-            HStack(spacing: 12) {
-                CachedArtwork(url: library.artworkURL(for: album.artworkFile), size: 44, rounded: false)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(album.title)
-                        .font(.subheadline.weight(.medium))
-                    Text(album.artist)
+        HStack(spacing: 12) {
+            Button {
+                navigation.openAlbum(album)
+                dismiss()
+            } label: {
+                HStack(spacing: 12) {
+                    CachedArtwork(url: library.artworkURL(for: album.artworkFile), size: 44, rounded: false)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(album.title)
+                            .font(.subheadline.weight(.medium))
+                        Text(album.artist)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text("\(album.tracks.count) tracks")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Spacer()
-                Text("\(album.tracks.count) tracks")
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                engine.playFromLibrary(album.tracks, startIndex: 0, store: library)
+                dismiss()
+            } label: {
+                Image(systemName: "play.fill")
+                    .font(.caption)
+                    .foregroundStyle(theme.accent)
+            }
+            .buttonStyle(.plain)
+            .help("Play Album")
+
+            Button {
+                engine.playFromLibrary(album.tracks, startIndex: 0, store: library, shuffleTracks: true)
+                dismiss()
+            } label: {
+                Image(systemName: "shuffle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            .buttonStyle(.plain)
+            .help("Shuffle Album")
         }
-        .buttonStyle(.plain)
-        .libraryPlaybackMenu(engine: engine, library: library, tracks: album.tracks)
+        .libraryPlaybackMenu(engine: engine, library: library, tracks: album.tracks, album: album)
     }
 
     private func searchArtistRow(_ artist: ArtistGroup) -> some View {
-        Button {
-            navigation.openArtist(artist.name)
-            dismiss()
-        } label: {
-            HStack(spacing: 12) {
-                CachedArtwork(url: library.artworkURL(for: artist.artworkFile), size: 44, rounded: true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(artist.name)
-                        .font(.subheadline.weight(.medium))
-                    Text("\(artist.tracks.count) tracks")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        HStack(spacing: 12) {
+            Button {
+                navigation.openArtist(artist.name)
+                dismiss()
+            } label: {
+                HStack(spacing: 12) {
+                    CachedArtwork(url: library.artworkURL(for: artist.artworkFile), size: 44, rounded: true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(artist.name)
+                            .font(.subheadline.weight(.medium))
+                        Text("\(artist.tracks.count) tracks")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
                 }
-                Spacer()
             }
+            .buttonStyle(.plain)
+
+            Button {
+                engine.playFromLibrary(artist.tracks, startIndex: 0, store: library)
+                dismiss()
+            } label: {
+                Image(systemName: "play.fill")
+                    .font(.caption)
+                    .foregroundStyle(theme.accent)
+            }
+            .buttonStyle(.plain)
+            .help("Play Artist")
+
+            Button {
+                engine.playFromLibrary(artist.tracks, startIndex: 0, store: library, shuffleTracks: true)
+                dismiss()
+            } label: {
+                Image(systemName: "shuffle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Shuffle Artist")
         }
-        .buttonStyle(.plain)
-        .libraryPlaybackMenu(engine: engine, library: library, tracks: artist.tracks)
+        .libraryPlaybackMenu(engine: engine, library: library, tracks: artist.tracks, artist: artist)
     }
 }

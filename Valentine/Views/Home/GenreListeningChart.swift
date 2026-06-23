@@ -9,6 +9,7 @@ struct GenreListeningChart: View {
     let stats: [GenreListeningStat]
     let accent: Color
     var maxBars: Int = 8
+    var onGenreSelected: ((String) -> Void)? = nil
 
     private var topStats: [GenreListeningStat] {
         Array(stats.prefix(maxBars))
@@ -68,39 +69,45 @@ struct GenreListeningChart: View {
     }
 
     private func genreBar(_ stat: GenreListeningStat) -> some View {
-        HStack(spacing: 12) {
-            Text(stat.name)
-                .font(.caption.weight(.medium))
-                .lineLimit(1)
-                .frame(width: 96, alignment: .leading)
+        Button {
+            onGenreSelected?(stat.name)
+        } label: {
+            HStack(spacing: 12) {
+                Text(stat.name)
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                    .frame(width: 96, alignment: .leading)
 
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(.primary.opacity(0.08))
-                    Capsule()
-                        .fill(
-                            LinearGradient(
-                                colors: [accent.opacity(0.95), accent.opacity(0.55)],
-                                startPoint: .leading,
-                                endPoint: .trailing
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(.primary.opacity(0.08))
+                        Capsule()
+                            .fill(
+                                LinearGradient(
+                                    colors: [accent.opacity(0.95), accent.opacity(0.55)],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
                             )
-                        )
-                        .frame(width: max(8, geometry.size.width * CGFloat(stat.listenSeconds / maxSeconds)))
+                            .frame(width: max(8, geometry.size.width * CGFloat(stat.listenSeconds / maxSeconds)))
+                    }
                 }
-            }
-            .frame(height: 10)
+                .frame(height: 10)
 
-            VStack(alignment: .trailing, spacing: 1) {
-                Text(formatListenTime(stat.listenSeconds))
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                Text("\(stat.playCount) plays")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(formatListenTime(stat.listenSeconds))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    Text("\(stat.playCount) plays")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .frame(width: 58, alignment: .trailing)
             }
-            .frame(width: 58, alignment: .trailing)
         }
+        .buttonStyle(.plain)
+        .disabled(onGenreSelected == nil)
     }
 
     private func formatListenTime(_ seconds: TimeInterval) -> String {

@@ -12,6 +12,7 @@ struct ListeningStats: Codable {
     var artistListenSeconds: [String: Double] = [:]
     var albumPlayCounts: [String: Int] = [:]
     var albumListenSeconds: [String: Double] = [:]
+    var playHistory: [PlayHistoryEntry] = []
 }
 
 struct GenreListeningStat: Identifiable, Hashable {
