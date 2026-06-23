@@ -17,8 +17,38 @@ struct LibraryTrack: Codable, Identifiable, Hashable {
     var duration: TimeInterval
     var artworkFile: String?
     var dateAdded: Date
+    var genre: String?
+    var year: Int?
+    var trackNumber: Int?
+    var discNumber: Int?
 
-    // The primary artist, with featured-artist credits removed, so grouping
+    init(
+        id: UUID,
+        bookmark: Data,
+        title: String,
+        artist: String,
+        album: String?,
+        duration: TimeInterval,
+        artworkFile: String?,
+        dateAdded: Date,
+        genre: String? = nil,
+        year: Int? = nil,
+        trackNumber: Int? = nil,
+        discNumber: Int? = nil
+    ) {
+        self.id = id
+        self.bookmark = bookmark
+        self.title = title
+        self.artist = artist
+        self.album = album
+        self.duration = duration
+        self.artworkFile = artworkFile
+        self.dateAdded = dateAdded
+        self.genre = genre
+        self.year = year
+        self.trackNumber = trackNumber
+        self.discNumber = discNumber
+    }
     // collapses "X feat. Y", "X & Y", "X, Y" into a single "X".
     var albumArtist: String {
         let separators = [" feat. ", " feat ", " ft. ", " ft ", " featuring ", " with ", " & ", ", ", " x ", " vs. ", " vs "]

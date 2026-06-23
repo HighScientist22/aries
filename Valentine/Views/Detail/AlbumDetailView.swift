@@ -21,7 +21,14 @@ struct AlbumDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            DetailBackBar(title: album.title, accent: theme.accent, onBack: onBack)
+            DetailBackBar(title: album.title, accent: theme.accent, onBack: onBack) {
+                FavoriteHeartButton(
+                    isFavorite: library.isFavorite(album: album),
+                    accent: theme.accent
+                ) {
+                    library.toggleFavorite(album: album)
+                }
+            }
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
@@ -118,6 +125,13 @@ struct AlbumDetailView: View {
                                     .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
+                                .libraryPlaybackMenu(
+                                    engine: engine,
+                                    library: library,
+                                    tracks: album.tracks,
+                                    startIndex: index,
+                                    album: album
+                                )
                             }
                         }
                     }

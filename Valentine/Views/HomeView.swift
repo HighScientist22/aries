@@ -59,6 +59,10 @@ struct HomeView: View {
                         sectionBrowser(title: "Artists", albums: [], artists: artists)
                     case .tracks:
                         tracksBrowser
+                    case .favorites:
+                        favoritesBrowser
+                    case .playlist(let id):
+                        playlistBrowser(id)
                     }
                 }
             }
@@ -91,17 +95,30 @@ struct HomeView: View {
 
             sidebarGroup("Browse") {
                 sidebarItem(.home, icon: "house.fill", label: "Home")
+                sidebarAction(icon: "magnifyingglass", label: "Search") {
+                    navigation.openLibrarySearch()
+                }
             }
 
             sidebarGroup("My Library") {
                 sidebarItem(.albums, icon: "square.stack.fill", label: "Albums")
                 sidebarItem(.artists, icon: "person.fill", label: "Artists")
                 sidebarItem(.tracks, icon: "music.note", label: "Tracks")
+                sidebarItem(.favorites, icon: "heart.fill", label: "Favorites")
+            }
+
+            if !library.playlists.isEmpty {
+                sidebarGroup("Playlists") {
+                    ForEach(library.playlists) { playlist in
+                        sidebarPlaylistItem(playlist)
+                    }
+                }
             }
 
             Spacer()
 
             VStack(alignment: .leading, spacing: 4) {
+                sidebarAction(icon: "music.note.list", label: "New Playlist", action: createPlaylist)
                 sidebarAction(icon: "plus", label: "Add Music", action: importToLibrary)
                 sidebarAction(icon: "gearshape", label: "Settings") {
                     navigation.openSettings()
@@ -122,6 +139,49 @@ struct HomeView: View {
             items()
         }
         .padding(.bottom, 16)
+    }
+
+    private func sidebarPlaylistItem(_ playlist: SavedPlaylist) -> some View {
+        let isSelected = selectedSection == .playlist(playlist.id)
+        return Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+                selectedSection = .playlist(playlist.id)
+                detailAlbum = nil
+                detailArtist = nil
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "music.note.list")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 18)
+                Text(playlist.name)
+                    .font(.subheadline.weight(isSelected ? .semibold : .regular))
+                    .lineLimit(1)
+                Spacer()
+            }
+            .foregroundStyle(isSelected ? theme.accent : .primary.opacity(0.85))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(theme.accent.opacity(0.15))
+                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .contextMenu {
+            Button(role: .destructive) {
+                library.deletePlaylist(playlist)
+                if selectedSection == .playlist(playlist.id) {
+                    selectedSection = .home
+                }
+            } label: {
+                Label("Delete Playlist", systemImage: "trash")
+            }
+        }
     }
 
     private func sidebarItem(_ section: HomeSection, icon: String, label: String) -> some View {
@@ -358,6 +418,7 @@ struct HomeView: View {
                                 onOpen: { openAlbum(album) },
                                 onPlay: { playAlbum(album) }
                             )
+                            .libraryPlaybackMenu(engine: engine, library: library, tracks: album.tracks, album: album)
                         }
                     }
                 }
@@ -374,6 +435,7 @@ struct HomeView: View {
                                 onOpen: { openArtist(artist) },
                                 onPlay: { playArtist(artist) }
                             )
+                            .libraryPlaybackMenu(engine: engine, library: library, tracks: artist.tracks, artist: artist)
                         }
                     }
                 }
@@ -397,6 +459,97 @@ struct HomeView: View {
                             artworkURL: library.artworkURL(for: track),
                             accent: theme.accent
                         ) { play(track) }
+                        .libraryPlaybackMenu(engine: engine, library: library, tracks: [track])
+                    }
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 48)
+        }
+    }
+
+    private var favoritesBrowser: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("Favorites")
+                    .font(.system(size: 32, weight: .regular, design: .serif))
+                    .padding(.top, 24)
+
+                if library.favoriteAlbums.isEmpty && library.favoriteArtists.isEmpty && library.favoriteTracks.isEmpty {
+                    Text("Heart albums, artists, and tracks to see them here.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    if !library.favoriteAlbums.isEmpty {
+                        albumRow("Albums", albums: library.favoriteAlbums)
+                    }
+                    if !library.favoriteArtists.isEmpty {
+                        artistRow("Artists", artists: library.favoriteArtists)
+                    }
+                    if !library.favoriteTracks.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Tracks")
+                                .font(.title3.weight(.semibold))
+                            LazyVStack(spacing: 2) {
+                                ForEach(library.favoriteTracks) { track in
+                                    LibraryTrackRow(
+                                        track: track,
+                                        artworkURL: library.artworkURL(for: track),
+                                        accent: theme.accent,
+                                        isFavorite: true,
+                                        onFavorite: { library.toggleFavorite(track: track) }
+                                    ) { play(track) }
+                                    .libraryPlaybackMenu(engine: engine, library: library, tracks: [track])
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 48)
+        }
+    }
+
+    private func playlistBrowser(_ playlistID: UUID) -> some View {
+        let playlist = library.playlists.first { $0.id == playlistID }
+        let playlistTracks = playlist.map { library.tracks(for: $0) } ?? []
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(playlist?.name ?? "Playlist")
+                    .font(.system(size: 32, weight: .regular, design: .serif))
+                    .padding(.top, 24)
+
+                if playlistTracks.isEmpty {
+                    Text("This playlist is empty.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    HStack(spacing: 12) {
+                        Button("Play") {
+                            engine.playFromLibrary(playlistTracks, startIndex: 0, store: library)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(theme.accent)
+                    }
+
+                    LazyVStack(spacing: 2) {
+                        ForEach(Array(playlistTracks.enumerated()), id: \.element.id) { index, track in
+                            LibraryTrackRow(
+                                track: track,
+                                artworkURL: library.artworkURL(for: track),
+                                accent: theme.accent
+                            ) {
+                                engine.playFromLibrary(playlistTracks, startIndex: index, store: library)
+                            }
+                            .libraryPlaybackMenu(engine: engine, library: library, tracks: [track])
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    library.removeTrack(track.id, from: playlistID)
+                                } label: {
+                                    Label("Remove from Playlist", systemImage: "minus.circle")
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -421,6 +574,7 @@ struct HomeView: View {
                             onOpen: { openAlbum(album) },
                             onPlay: { playAlbum(album) }
                         )
+                        .libraryPlaybackMenu(engine: engine, library: library, tracks: album.tracks, album: album)
                     }
                 }
             }
@@ -443,6 +597,7 @@ struct HomeView: View {
                             onOpen: { openArtist(artist) },
                             onPlay: { playArtist(artist) }
                         )
+                        .libraryPlaybackMenu(engine: engine, library: library, tracks: artist.tracks, artist: artist)
                     }
                 }
             }
@@ -561,6 +716,15 @@ struct HomeView: View {
         matchingAlbums(forArtist: artist, in: albums)
     }
 
+    private func createPlaylist() {
+        let playlist = library.createPlaylist(named: "Playlist \(library.playlists.count + 1)")
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+            selectedSection = .playlist(playlist.id)
+            detailAlbum = nil
+            detailArtist = nil
+        }
+    }
+
     private func importToLibrary() {
         let urls = MusicImportPanel.pickFiles(allowFolders: true)
         guard !urls.isEmpty else { return }
@@ -577,7 +741,8 @@ private struct RecentAlbumItem: Identifiable {
 }
 
 private enum HomeSection: Hashable {
-    case home, albums, artists, tracks
+    case home, albums, artists, tracks, favorites
+    case playlist(UUID)
 }
 
 private enum RecentActivityTab {

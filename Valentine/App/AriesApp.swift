@@ -113,6 +113,9 @@ struct RootView: View {
             openWindow(id: "settings")
             navigation.shouldOpenSettings = false
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openLibrarySearch)) { _ in
+            navigation.openLibrarySearch()
+        }
     }
 
     private func updateTheme(theme: Int) {
@@ -214,6 +217,11 @@ struct AriesCommands: Commands {
         }
 
         CommandGroup(after: .textEditing) {
+            Divider()
+            Button(action: { NotificationCenter.default.post(name: .openLibrarySearch, object: nil) }) {
+                Label("Search Library", systemImage: "magnifyingglass")
+            }
+            .keyboardShortcut("k", modifiers: [.command])
             Divider()
             Button(action: { NotificationCenter.default.post(name: .editLyrics, object: nil) }) {
                 Label("Edit Lyrics", systemImage: "music.note.list")

@@ -124,6 +124,11 @@ struct ContentView: View {
         }
         .frame(minWidth: 400, minHeight: 540)
         .tint(theme.accent)
+        .sheet(isPresented: $navigation.showLibrarySearch) {
+            LibrarySearchView(engine: engine, library: library)
+                .environmentObject(navigation)
+                .environmentObject(theme)
+        }
     }
 
     @ViewBuilder

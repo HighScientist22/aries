@@ -27,7 +27,14 @@ struct ArtistDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            DetailBackBar(title: artist.name, accent: theme.accent, onBack: onBack)
+            DetailBackBar(title: artist.name, accent: theme.accent, onBack: onBack) {
+                FavoriteHeartButton(
+                    isFavorite: library.isFavorite(artist: artist),
+                    accent: theme.accent
+                ) {
+                    library.toggleFavorite(artist: artist)
+                }
+            }
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
@@ -88,6 +95,12 @@ struct ArtistDetailView: View {
                                             }
                                         }
                                         .buttonStyle(.plain)
+                                        .libraryPlaybackMenu(
+                                            engine: engine,
+                                            library: library,
+                                            tracks: album.tracks,
+                                            album: album
+                                        )
                                     }
                                 }
                             }

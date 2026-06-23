@@ -18,6 +18,10 @@ struct Track: Identifiable, Hashable {
     var nsImage: NSImage?
     var duration: TimeInterval
     var lyrics: [LyricLine]?
+    var genre: String?
+    var year: Int?
+    var trackNumber: Int?
+    var discNumber: Int?
 
     init(url: URL) {
         self.id = UUID()
@@ -29,6 +33,10 @@ struct Track: Identifiable, Hashable {
         self.nsImage = nil
         self.duration = 0
         self.lyrics = nil
+        self.genre = nil
+        self.year = nil
+        self.trackNumber = nil
+        self.discNumber = nil
     }
     
     mutating func loadMetadata() async {
@@ -74,7 +82,23 @@ struct Track: Identifiable, Hashable {
                             self.nsImage = image
                             self.albumArt = Image(nsImage: image)
                         }
+                    case AVMetadataKey.commonKeyType.rawValue:
+                        if let value = try await item.load(.stringValue) {
+                            self.genre = value
+                        }
+                    case AVMetadataKey.commonKeyCreationDate.rawValue:
+                        if let value = try await item.load(.stringValue),
+                           let parsed = Int(value.prefix(4)) {
+                            self.year = parsed
+                        }
                     default:
+                        if let identifier = item.identifier?.rawValue {
+                            if identifier.contains("trackNumber") || identifier.hasSuffix("/trkn") {
+                                self.trackNumber = await Self.parseIntMetadata(item)
+                            } else if identifier.contains("discNumber") || identifier.hasSuffix("/disk") {
+                                self.discNumber = await Self.parseIntMetadata(item)
+                            }
+                        }
                         break
                     }
                 }
@@ -91,6 +115,16 @@ struct Track: Identifiable, Hashable {
 
     mutating func updateLyrics(from text: String) {
         self.lyrics = Self.parseLyricsText(text, duration: duration)
+    }
+
+    private static func parseIntMetadata(_ item: AVMetadataItem) async -> Int? {
+        if let number = try? await item.load(.numberValue) as? NSNumber {
+            return number.intValue
+        }
+        if let string = try? await item.load(.stringValue), let value = Int(string) {
+            return value
+        }
+        return nil
     }
 
     static func parseLyricsText(_ text: String, duration: TimeInterval) -> [LyricLine]? {

@@ -25,9 +25,7 @@ func groupAlbums(from tracks: [LibraryTrack]) -> [AlbumGroup] {
         "\(track.album ?? track.title)|\(track.albumArtist)"
     }
     return grouped.map { _, group in
-        let ordered = group.sorted { lhs, rhs in
-            lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
-        }
+        let ordered = group.sorted(by: sortTracksForAlbum)
         let first = ordered.first
         return AlbumGroup(
             title: first?.album ?? first?.title ?? "Unknown Album",
@@ -45,12 +43,20 @@ func groupArtists(from tracks: [LibraryTrack]) -> [ArtistGroup] {
         ArtistGroup(
             name: name,
             artworkFile: artistTracks.first(where: { $0.artworkFile != nil })?.artworkFile,
-            tracks: artistTracks.sorted {
-                $0.title.localizedStandardCompare($1.title) == .orderedAscending
-            }
+            tracks: artistTracks.sorted(by: sortTracksForAlbum)
         )
     }
     .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+}
+
+func sortTracksForAlbum(_ lhs: LibraryTrack, _ rhs: LibraryTrack) -> Bool {
+    if let leftDisc = lhs.discNumber, let rightDisc = rhs.discNumber, leftDisc != rightDisc {
+        return leftDisc < rightDisc
+    }
+    if let leftTrack = lhs.trackNumber, let rightTrack = rhs.trackNumber, leftTrack != rightTrack {
+        return leftTrack < rightTrack
+    }
+    return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
 }
 
 func artistGroup(named name: String, from tracks: [LibraryTrack]) -> ArtistGroup {
@@ -58,7 +64,7 @@ func artistGroup(named name: String, from tracks: [LibraryTrack]) -> ArtistGroup
     return ArtistGroup(
         name: name,
         artworkFile: matching.first(where: { $0.artworkFile != nil })?.artworkFile,
-        tracks: matching.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        tracks: matching.sorted(by: sortTracksForAlbum)
     )
 }
 

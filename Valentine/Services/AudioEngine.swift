@@ -258,40 +258,85 @@ class AudioEngine: ObservableObject {
         store: LibraryStore,
         shuffleTracks: Bool = false
     ) {
+        queueFromLibrary(
+            libraryTracks,
+            startIndex: startIndex,
+            store: store,
+            mode: .playNow,
+            shuffleTracks: shuffleTracks
+        )
+    }
+
+    func queueFromLibrary(
+        _ libraryTracks: [LibraryTrack],
+        startIndex: Int = 0,
+        store: LibraryStore,
+        mode: LibraryQueueMode = .playNow,
+        shuffleTracks: Bool = false
+    ) {
         Task {
-            stopPlayback()
-            queue.removeAll()
-            queueLibraryIDs.removeAll()
-            currentTrackIndex = nil
             self.libraryStore = store
+            let resolved = await Self.resolveLibraryTracks(libraryTracks, store: store, shuffle: shuffleTracks)
+            guard !resolved.isEmpty else { return }
 
-            var sourceTracks = libraryTracks
-            if shuffleTracks {
-                sourceTracks.shuffle()
-            }
-
-            for libTrack in sourceTracks {
-                guard let url = store.resolveURL(for: libTrack) else { continue }
-
-                var track = Track(url: url)
-                track.title = libTrack.title
-                track.artist = libTrack.artist
-                track.album = libTrack.album
-                track.duration = libTrack.duration
-                if let artURL = store.artworkURL(for: libTrack),
-                   let image = await ArtworkLoader.shared.image(at: artURL, maxPixelSize: 512) {
-                    track.nsImage = image
-                    track.albumArt = Image(nsImage: image)
-                }
-                queue.append(track)
-                queueLibraryIDs.append(libTrack.id)
-            }
-
-            let target = queue.indices.contains(startIndex) ? startIndex : 0
-            if !queue.isEmpty {
+            switch mode {
+            case .playNow:
+                stopPlayback()
+                queue = resolved.map(\.track)
+                queueLibraryIDs = resolved.map(\.libraryID)
+                let target = queue.indices.contains(startIndex) ? startIndex : 0
                 playTrack(at: target)
+
+            case .playNext:
+                let insertIndex: Int
+                if let current = currentTrackIndex {
+                    insertIndex = min(current + 1, queue.count)
+                } else {
+                    insertIndex = 0
+                }
+                let tracksToInsert = resolved.map(\.track)
+                let idsToInsert = resolved.map(\.libraryID)
+                queue.insert(contentsOf: tracksToInsert, at: insertIndex)
+                queueLibraryIDs.insert(contentsOf: idsToInsert, at: insertIndex)
+                if currentTrackIndex == nil {
+                    playTrack(at: 0)
+                }
+
+            case .addToQueue:
+                queue.append(contentsOf: resolved.map(\.track))
+                queueLibraryIDs.append(contentsOf: resolved.map(\.libraryID))
+                if currentTrackIndex == nil, !queue.isEmpty {
+                    playTrack(at: 0, autoPlay: false)
+                }
             }
         }
+    }
+
+    private static func resolveLibraryTracks(
+        _ libraryTracks: [LibraryTrack],
+        store: LibraryStore,
+        shuffle: Bool
+    ) async -> [(track: Track, libraryID: UUID)] {
+        var sourceTracks = libraryTracks
+        if shuffle { sourceTracks.shuffle() }
+
+        var resolved: [(track: Track, libraryID: UUID)] = []
+        for libTrack in sourceTracks {
+            guard let url = store.resolveURL(for: libTrack) else { continue }
+
+            var track = Track(url: url)
+            track.title = libTrack.title
+            track.artist = libTrack.artist
+            track.album = libTrack.album
+            track.duration = libTrack.duration
+            if let artURL = store.artworkURL(for: libTrack),
+               let image = await ArtworkLoader.shared.image(at: artURL, maxPixelSize: 512) {
+                track.nsImage = image
+                track.albumArt = Image(nsImage: image)
+            }
+            resolved.append((track, libTrack.id))
+        }
+        return resolved
     }
 
     func addTracks(_ urls: [URL]) {

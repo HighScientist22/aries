@@ -119,6 +119,8 @@ struct LibraryTrackRow: View {
     let track: LibraryTrack
     let artworkURL: URL?
     let accent: Color
+    var isFavorite: Bool = false
+    var onFavorite: (() -> Void)? = nil
     let action: () -> Void
     @State private var isHovered = false
 
@@ -139,6 +141,14 @@ struct LibraryTrackRow: View {
                 Text(track.duration.formatTime())
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
+                if let onFavorite {
+                    Button(action: onFavorite) {
+                        Image(systemName: isFavorite ? "heart.fill" : "heart")
+                            .font(.caption)
+                            .foregroundStyle(isFavorite ? accent : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
                 Image(systemName: "play.fill")
                     .font(.caption)
                     .foregroundStyle(accent)

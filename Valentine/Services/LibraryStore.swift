@@ -14,14 +14,22 @@ class LibraryStore: ObservableObject {
     @Published private(set) var albumGroups: [AlbumGroup] = []
     @Published private(set) var artistGroups: [ArtistGroup] = []
     @Published private(set) var recentlyPlayedIDs: [UUID] = []
+    @Published private(set) var favoriteTrackIDs: Set<UUID> = []
+    @Published private(set) var favoriteAlbumIDs: Set<String> = []
+    @Published private(set) var favoriteArtistIDs: Set<String> = []
+    @Published private(set) var playlists: [SavedPlaylist] = []
     @Published private(set) var isImporting = false
 
     private let supportedExtensions = SupportedAudioFormats.extensions
     private let recentlyPlayedLimit = 25
+    private var recentSaveTask: Task<Void, Never>?
+    private var librarySaveTask: Task<Void, Never>?
 
     private let baseURL: URL
     private let indexURL: URL
     private let recentURL: URL
+    private let favoritesURL: URL
+    private let playlistsURL: URL
     private let artworkDirURL: URL
 
     // Directory watchers: a DispatchSource per watched directory and the
@@ -36,6 +44,8 @@ class LibraryStore: ObservableObject {
         baseURL = support.appendingPathComponent("Aries", isDirectory: true)
         indexURL = baseURL.appendingPathComponent("library.json")
         recentURL = baseURL.appendingPathComponent("recent.json")
+        favoritesURL = baseURL.appendingPathComponent("favorites.json")
+        playlistsURL = baseURL.appendingPathComponent("playlists.json")
         artworkDirURL = baseURL.appendingPathComponent("Artwork", isDirectory: true)
 
         try? FileManager.default.createDirectory(at: artworkDirURL, withIntermediateDirectories: true)
@@ -57,7 +67,23 @@ class LibraryStore: ObservableObject {
            let decoded = try? JSONDecoder().decode([UUID].self, from: data) {
             recentlyPlayedIDs = decoded
         }
+        if let data = try? Data(contentsOf: favoritesURL),
+           let decoded = try? JSONDecoder().decode(FavoritesPayload.self, from: data) {
+            favoriteTrackIDs = Set(decoded.tracks)
+            favoriteAlbumIDs = Set(decoded.albums)
+            favoriteArtistIDs = Set(decoded.artists ?? [])
+        }
+        if let data = try? Data(contentsOf: playlistsURL),
+           let decoded = try? JSONDecoder().decode([SavedPlaylist].self, from: data) {
+            playlists = decoded.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
         recomputeGroups()
+    }
+
+    private struct FavoritesPayload: Codable {
+        var tracks: [UUID]
+        var albums: [String]
+        var artists: [String]?
     }
 
     private func recomputeGroups() {
@@ -78,18 +104,169 @@ class LibraryStore: ObservableObject {
         if recentlyPlayedIDs.count > recentlyPlayedLimit {
             recentlyPlayedIDs = Array(recentlyPlayedIDs.prefix(recentlyPlayedLimit))
         }
-        if let data = try? JSONEncoder().encode(recentlyPlayedIDs) {
-            try? data.write(to: recentURL, options: .atomic)
-        }
+        scheduleRecentSave()
     }
 
     var recentlyPlayed: [LibraryTrack] {
         recentlyPlayedIDs.compactMap { id in tracks.first { $0.id == id } }
     }
 
+    var favoriteTracks: [LibraryTrack] {
+        tracks.filter { favoriteTrackIDs.contains($0.id) }
+    }
+
+    var favoriteAlbums: [AlbumGroup] {
+        albumGroups.filter { favoriteAlbumIDs.contains($0.id) }
+    }
+
+    var favoriteArtists: [ArtistGroup] {
+        artistGroups.filter { favoriteArtistIDs.contains($0.id) }
+    }
+
+    func isFavorite(track: LibraryTrack) -> Bool {
+        favoriteTrackIDs.contains(track.id)
+    }
+
+    func isFavorite(album: AlbumGroup) -> Bool {
+        favoriteAlbumIDs.contains(album.id)
+    }
+
+    func isFavorite(artist: ArtistGroup) -> Bool {
+        favoriteArtistIDs.contains(artist.id)
+    }
+
+    func toggleFavorite(track: LibraryTrack) {
+        if favoriteTrackIDs.contains(track.id) {
+            favoriteTrackIDs.remove(track.id)
+        } else {
+            favoriteTrackIDs.insert(track.id)
+        }
+        persistFavorites()
+    }
+
+    func toggleFavorite(album: AlbumGroup) {
+        if favoriteAlbumIDs.contains(album.id) {
+            favoriteAlbumIDs.remove(album.id)
+        } else {
+            favoriteAlbumIDs.insert(album.id)
+        }
+        persistFavorites()
+    }
+
+    func toggleFavorite(artist: ArtistGroup) {
+        if favoriteArtistIDs.contains(artist.id) {
+            favoriteArtistIDs.remove(artist.id)
+        } else {
+            favoriteArtistIDs.insert(artist.id)
+        }
+        persistFavorites()
+    }
+
+    func createPlaylist(named name: String) -> SavedPlaylist {
+        let playlist = SavedPlaylist(name: name)
+        playlists.append(playlist)
+        playlists.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        persistPlaylists()
+        return playlist
+    }
+
+    func deletePlaylist(_ playlist: SavedPlaylist) {
+        playlists.removeAll { $0.id == playlist.id }
+        persistPlaylists()
+    }
+
+    func renamePlaylist(_ playlist: SavedPlaylist, to name: String) {
+        guard let index = playlists.firstIndex(where: { $0.id == playlist.id }) else { return }
+        playlists[index].name = name
+        playlists[index].dateModified = Date()
+        playlists.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        persistPlaylists()
+    }
+
+    func tracks(for playlist: SavedPlaylist) -> [LibraryTrack] {
+        playlist.trackIDs.compactMap { id in tracks.first { $0.id == id } }
+    }
+
+    func addTracks(_ trackIDs: [UUID], to playlistID: UUID) {
+        guard let index = playlists.firstIndex(where: { $0.id == playlistID }) else { return }
+        var seen = Set(playlists[index].trackIDs)
+        for id in trackIDs where seen.insert(id).inserted {
+            playlists[index].trackIDs.append(id)
+        }
+        playlists[index].dateModified = Date()
+        persistPlaylists()
+    }
+
+    func removeTrack(_ trackID: UUID, from playlistID: UUID) {
+        guard let index = playlists.firstIndex(where: { $0.id == playlistID }) else { return }
+        playlists[index].trackIDs.removeAll { $0 == trackID }
+        playlists[index].dateModified = Date()
+        persistPlaylists()
+    }
+
+    func search(query: String) -> LibrarySearchResults {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return LibrarySearchResults(tracks: [], albums: [], artists: [])
+        }
+
+        let matchedTracks = tracks.filter {
+            $0.title.localizedCaseInsensitiveContains(trimmed)
+                || $0.artist.localizedCaseInsensitiveContains(trimmed)
+                || ($0.album?.localizedCaseInsensitiveContains(trimmed) ?? false)
+                || ($0.genre?.localizedCaseInsensitiveContains(trimmed) ?? false)
+        }
+
+        let matchedAlbums = albumGroups.filter {
+            $0.title.localizedCaseInsensitiveContains(trimmed)
+                || $0.artist.localizedCaseInsensitiveContains(trimmed)
+        }
+
+        let matchedArtists = artistGroups.filter {
+            $0.name.localizedCaseInsensitiveContains(trimmed)
+        }
+
+        return LibrarySearchResults(
+            tracks: Array(matchedTracks.prefix(25)),
+            albums: Array(matchedAlbums.prefix(15)),
+            artists: Array(matchedArtists.prefix(15))
+        )
+    }
+
+    private func scheduleRecentSave() {
+        recentSaveTask?.cancel()
+        recentSaveTask = Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            if let data = try? JSONEncoder().encode(recentlyPlayedIDs) {
+                try? data.write(to: recentURL, options: .atomic)
+            }
+        }
+    }
+
+    private func persistFavorites() {
+        let payload = FavoritesPayload(
+            tracks: Array(favoriteTrackIDs),
+            albums: Array(favoriteAlbumIDs),
+            artists: Array(favoriteArtistIDs)
+        )
+        guard let data = try? JSONEncoder().encode(payload) else { return }
+        try? data.write(to: favoritesURL, options: .atomic)
+    }
+
+    private func persistPlaylists() {
+        guard let data = try? JSONEncoder().encode(playlists) else { return }
+        try? data.write(to: playlistsURL, options: .atomic)
+    }
+
     private func persist() {
-        guard let data = try? JSONEncoder().encode(tracks) else { return }
-        try? data.write(to: indexURL, options: .atomic)
+        librarySaveTask?.cancel()
+        librarySaveTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            guard let data = try? JSONEncoder().encode(tracks) else { return }
+            try? data.write(to: indexURL, options: .atomic)
+        }
     }
 
     // MARK: - Resolving files
@@ -211,7 +388,11 @@ class LibraryStore: ObservableObject {
                 album: track.album,
                 duration: track.duration,
                 artworkFile: artworkFile,
-                dateAdded: Date()
+                dateAdded: Date(),
+                genre: track.genre,
+                year: track.year,
+                trackNumber: track.trackNumber,
+                discNumber: track.discNumber
             )
             tracks.insert(record, at: 0)
         }
@@ -435,7 +616,11 @@ class LibraryStore: ObservableObject {
             album: track.album,
             duration: track.duration,
             artworkFile: artworkFile,
-            dateAdded: Date()
+            dateAdded: Date(),
+            genre: track.genre,
+            year: track.year,
+            trackNumber: track.trackNumber,
+            discNumber: track.discNumber
         )
     }
 
