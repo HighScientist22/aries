@@ -18,6 +18,18 @@ final class AppNavigation: ObservableObject {
     @Published var librarySearchQuery = ""
 
     @Published var albumIDToOpen: String?
+    @Published var trackMetadataToEdit: LibraryTrack?
+    @Published var pendingMetadataTrack: LibraryTrack?
+    @Published var albumMetadataToEdit: AlbumGroup?
+    @Published var pendingAlbumMetadata: AlbumGroup?
+
+    func openMetadataEditor(for track: LibraryTrack) {
+        trackMetadataToEdit = track
+    }
+
+    func openAlbumMetadataEditor(for album: AlbumGroup) {
+        albumMetadataToEdit = album
+    }
 
     func openArtist(_ name: String) {
         artistNameToOpen = name

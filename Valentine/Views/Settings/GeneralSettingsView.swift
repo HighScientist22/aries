@@ -59,6 +59,7 @@ struct GeneralSettingsView: View {
     @AppStorage("customGreeting") private var customGreeting: String = ""
     @AppStorage("showHomeWaveform") private var showHomeWaveform = true
     @AppStorage("resumePlaybackPosition") private var resumePlaybackPosition = true
+    @AppStorage("removeFromListenLaterOnPlay") private var removeFromListenLaterOnPlay = true
     @AppStorage("replayGainEnabled") private var replayGainEnabled = false
     @AppStorage("menuBarEnabled") private var menuBarEnabled = true
     @AppStorage("menuBarShowOnlyWhenPlaying") private var menuBarShowOnlyWhenPlaying = true
@@ -117,6 +118,11 @@ struct GeneralSettingsView: View {
 
                 Toggle("Resume playback position", isOn: $resumePlaybackPosition)
                 Text("Remembers where you left off on each track (after 10 seconds).")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Toggle("Remove from Listen Later when played", isOn: $removeFromListenLaterOnPlay)
+                Text("Clears a track from Listen Later when playback starts.")
                     .font(.caption)
                     .foregroundColor(.secondary)
 

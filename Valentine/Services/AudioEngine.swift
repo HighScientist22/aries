@@ -97,7 +97,9 @@ class AudioEngine: ObservableObject {
 
     // Library IDs aligned to `queue`, used to record recently-played tracks.
     private var queueLibraryIDs: [UUID] = []
+    private var queuePodcastEpisodeIDs: [UUID] = []
     private weak var libraryStore: LibraryStore?
+    private weak var podcastStore: PodcastStore?
     private var radioSession: RadioSession?
 
     private var userDefaultsObserver: NSObjectProtocol?
@@ -302,6 +304,7 @@ class AudioEngine: ObservableObject {
         stopPlayback()
         self.queue.removeAll()
         self.queueLibraryIDs.removeAll()
+        self.queuePodcastEpisodeIDs.removeAll()
         self.currentTrackIndex = nil
         self.currentTime = 0
         self.duration = 0
@@ -315,13 +318,85 @@ class AudioEngine: ObservableObject {
         restorePersistedQueueIfNeeded()
     }
 
+    func attachPodcastStore(_ store: PodcastStore) {
+        podcastStore = store
+        restorePersistedQueueIfNeeded()
+    }
+
+    private func restorePersistedQueueIfNeeded() {
+        guard !hasRestoredQueue, queue.isEmpty else { return }
+        guard let data = try? Data(contentsOf: queueStateURL),
+              let state = try? JSONDecoder().decode(PersistedQueueState.self, from: data) else { return }
+
+        hasRestoredQueue = true
+
+        if state.isPodcastQueue, let podcastStore {
+            restorePodcastQueue(state, store: podcastStore)
+        } else if let libraryStore, !state.libraryTrackIDs.isEmpty {
+            restoreLibraryQueue(state, store: libraryStore)
+        } else {
+            hasRestoredQueue = false
+        }
+    }
+
+    private func restoreLibraryQueue(_ state: PersistedQueueState, store: LibraryStore) {
+        Task {
+            let libraryTracks = state.libraryTrackIDs.compactMap { id in
+                store.tracks.first { $0.id == id }
+            }
+            guard !libraryTracks.isEmpty else { return }
+            let resolved = await Self.resolveLibraryTracks(libraryTracks, store: store, shuffle: false)
+            guard !resolved.isEmpty else { return }
+
+            queue = resolved.map(\.track)
+            queueLibraryIDs = resolved.map(\.libraryID)
+            queuePodcastEpisodeIDs = []
+            shuffleMode = state.shuffleMode
+            repeatMode = RepeatMode(rawValue: state.repeatMode) ?? .off
+
+            let index = state.currentIndex.flatMap { queue.indices.contains($0) ? $0 : nil } ?? 0
+            playTrack(at: index, autoPlay: false)
+            if state.currentTime > 0 { seek(to: state.currentTime) }
+            if state.wasPlaying { play() }
+        }
+    }
+
+    private func restorePodcastQueue(_ state: PersistedQueueState, store: PodcastStore) {
+        Task {
+            let orderedEpisodes = state.podcastEpisodeIDs.compactMap { id in
+                store.episodes.first { $0.id == id }
+            }
+            guard let first = orderedEpisodes.first,
+                  let feed = store.feed(for: first.feedID) else { return }
+
+            podcastStore = store
+            libraryStore = nil
+            let resolved = await resolvePodcastTracks(orderedEpisodes, feed: feed, store: store)
+            guard !resolved.tracks.isEmpty else { return }
+
+            queue = resolved.tracks
+            queueLibraryIDs = []
+            queuePodcastEpisodeIDs = resolved.episodeIDs
+            shuffleMode = state.shuffleMode
+            repeatMode = RepeatMode(rawValue: state.repeatMode) ?? .off
+
+            let index = state.currentIndex.flatMap { queue.indices.contains($0) ? $0 : nil } ?? 0
+            playTrack(at: index, autoPlay: false)
+            if state.currentTime > 0 { seek(to: state.currentTime) }
+            if state.wasPlaying { play() }
+        }
+    }
+
     func persistQueueNow() {
-        guard !queueLibraryIDs.isEmpty else {
+        let hasLibrary = !queueLibraryIDs.isEmpty
+        let hasPodcast = !queuePodcastEpisodeIDs.isEmpty
+        guard hasLibrary || hasPodcast else {
             try? FileManager.default.removeItem(at: queueStateURL)
             return
         }
         let state = PersistedQueueState(
             libraryTrackIDs: queueLibraryIDs,
+            podcastEpisodeIDs: queuePodcastEpisodeIDs,
             currentIndex: currentTrackIndex,
             currentTime: currentTime,
             wasPlaying: isPlaying,
@@ -345,38 +420,6 @@ class AudioEngine: ObservableObject {
         }
     }
 
-    private func restorePersistedQueueIfNeeded() {
-        guard !hasRestoredQueue else { return }
-        hasRestoredQueue = true
-        guard queue.isEmpty, let store = libraryStore else { return }
-        guard let data = try? Data(contentsOf: queueStateURL),
-              let state = try? JSONDecoder().decode(PersistedQueueState.self, from: data),
-              !state.libraryTrackIDs.isEmpty else { return }
-
-        Task {
-            let libraryTracks = state.libraryTrackIDs.compactMap { id in
-                store.tracks.first { $0.id == id }
-            }
-            guard !libraryTracks.isEmpty else { return }
-            let resolved = await Self.resolveLibraryTracks(libraryTracks, store: store, shuffle: false)
-            guard !resolved.isEmpty else { return }
-
-            queue = resolved.map(\.track)
-            queueLibraryIDs = resolved.map(\.libraryID)
-            shuffleMode = state.shuffleMode
-            repeatMode = RepeatMode(rawValue: state.repeatMode) ?? .off
-
-            let index = state.currentIndex.flatMap { queue.indices.contains($0) ? $0 : nil } ?? 0
-            playTrack(at: index, autoPlay: false)
-            if state.currentTime > 0 {
-                seek(to: state.currentTime)
-            }
-            if state.wasPlaying {
-                play()
-            }
-        }
-    }
-
     // Replaces the queue with tracks resolved from the persistent library and
     // starts playback at `startIndex`.
     func playFromLibrary(
@@ -393,6 +436,105 @@ class AudioEngine: ObservableObject {
             mode: .playNow,
             shuffleTracks: shuffleTracks
         )
+    }
+
+    func playPodcastEpisodes(
+        _ episodes: [PodcastEpisode],
+        startIndex: Int,
+        feed: PodcastFeed,
+        store: PodcastStore
+    ) {
+        Task {
+            stopRadio()
+            podcastStore = store
+            libraryStore = nil
+            guard episodes.indices.contains(startIndex) else { return }
+
+            let artwork = await loadPodcastArtwork(from: store.artworkURL(for: feed))
+            guard let startBuilt = await buildPodcastTrack(
+                episodes[startIndex], feed: feed, store: store, artwork: artwork
+            ) else { return }
+
+            stopPlayback()
+            queue = [startBuilt.track]
+            queueLibraryIDs = []
+            queuePodcastEpisodeIDs = [startBuilt.episodeID]
+            playTrack(at: 0)
+            persistQueueSoon()
+
+            var indexed: [(Int, Track, UUID)] = [(startIndex, startBuilt.track, startBuilt.episodeID)]
+            await withTaskGroup(of: (Int, Track, UUID)?.self) { group in
+                for (index, episode) in episodes.enumerated() where index != startIndex {
+                    group.addTask { @MainActor in
+                        guard let built = await self.buildPodcastTrack(
+                            episode, feed: feed, store: store, artwork: artwork
+                        ) else { return nil }
+                        return (index, built.track, built.episodeID)
+                    }
+                }
+                for await result in group {
+                    if let result { indexed.append(result) }
+                }
+            }
+
+            indexed.sort { $0.0 < $1.0 }
+            queue = indexed.map(\.1)
+            queuePodcastEpisodeIDs = indexed.map(\.2)
+            if let newIndex = indexed.firstIndex(where: { $0.2 == startBuilt.episodeID }) {
+                currentTrackIndex = newIndex
+            }
+            persistQueueSoon()
+        }
+    }
+
+    private func resolvePodcastTracks(
+        _ episodes: [PodcastEpisode],
+        feed: PodcastFeed,
+        store: PodcastStore,
+        artwork: (nsImage: NSImage, albumArt: Image)? = nil
+    ) async -> (tracks: [Track], episodeIDs: [UUID]) {
+        let art: (nsImage: NSImage, albumArt: Image)?
+        if let artwork {
+            art = artwork
+        } else {
+            art = await loadPodcastArtwork(from: store.artworkURL(for: feed))
+        }
+        var tracks: [Track] = []
+        var episodeIDs: [UUID] = []
+        for episode in episodes {
+            guard let built = await buildPodcastTrack(episode, feed: feed, store: store, artwork: art) else { continue }
+            tracks.append(built.track)
+            episodeIDs.append(built.episodeID)
+        }
+        return (tracks, episodeIDs)
+    }
+
+    private func loadPodcastArtwork(from url: URL?) async -> (nsImage: NSImage, albumArt: Image)? {
+        guard let url,
+              let image = await ArtworkLoader.shared.image(at: url, maxPixelSize: 512) else { return nil }
+        return (image, Image(nsImage: image))
+    }
+
+    private func buildPodcastTrack(
+        _ episode: PodcastEpisode,
+        feed: PodcastFeed,
+        store: PodcastStore,
+        artwork: (nsImage: NSImage, albumArt: Image)?
+    ) async -> (track: Track, episodeID: UUID)? {
+        guard let url = await store.localURL(for: episode) else { return nil }
+        var track = Track(url: url)
+        if let cached = store.cachedURL(for: episode) {
+            track.duration = (try? await AVURLAsset(url: cached).load(.duration).seconds) ?? episode.duration ?? 0
+        }
+        if track.duration == 0 { track.duration = episode.duration ?? 0 }
+        track.title = episode.title
+        track.artist = feed.author ?? feed.title
+        track.album = feed.title
+        if let artwork {
+            track.nsImage = artwork.nsImage
+            track.albumArt = artwork.albumArt
+        }
+        return (track, episode.id)
     }
 
     func startRadio(seed: RadioSeed, store: LibraryStore) {
@@ -420,6 +562,7 @@ class AudioEngine: ObservableObject {
             stopPlayback()
             queue = resolved.map(\.track)
             queueLibraryIDs = resolved.map(\.libraryID)
+            queuePodcastEpisodeIDs = []
             playTrack(at: 0)
             persistQueueSoon()
         }
@@ -451,6 +594,7 @@ class AudioEngine: ObservableObject {
     ) {
         Task {
             self.libraryStore = store
+            self.podcastStore = nil
             let resolved = await Self.resolveLibraryTracks(libraryTracks, store: store, shuffle: shuffleTracks)
             guard !resolved.isEmpty else { return }
 
@@ -459,6 +603,7 @@ class AudioEngine: ObservableObject {
                 stopPlayback()
                 queue = resolved.map(\.track)
                 queueLibraryIDs = resolved.map(\.libraryID)
+                queuePodcastEpisodeIDs = []
                 let target = queue.indices.contains(startIndex) ? startIndex : 0
                 playTrack(at: target)
 
@@ -580,13 +725,20 @@ class AudioEngine: ObservableObject {
         }
 
         var resumeTime: TimeInterval = 0
-        if isResumePlaybackEnabled,
-           queueLibraryIDs.indices.contains(index),
-           let saved = libraryStore?.resumePosition(for: queueLibraryIDs[index]),
-           saved > 10,
-           track.duration > 15,
-           saved < track.duration - 15 {
-            resumeTime = saved
+        if isResumePlaybackEnabled {
+            if queuePodcastEpisodeIDs.indices.contains(index),
+               let saved = podcastStore?.resumePosition(for: queuePodcastEpisodeIDs[index]),
+               saved > 10,
+               track.duration > 15,
+               saved < track.duration - 15 {
+                resumeTime = saved
+            } else if queueLibraryIDs.indices.contains(index),
+                      let saved = libraryStore?.resumePosition(for: queueLibraryIDs[index]),
+                      saved > 10,
+                      track.duration > 15,
+                      saved < track.duration - 15 {
+                resumeTime = saved
+            }
         }
 
         currentTrackIndex = index
@@ -629,18 +781,22 @@ class AudioEngine: ObservableObject {
     private func saveResumePositionForCurrentTrack() {
         guard isResumePlaybackEnabled,
               let index = currentTrackIndex,
-              queueLibraryIDs.indices.contains(index),
               duration > 0 else { return }
-        let libID = queueLibraryIDs[index]
         let pos = currentTime
-        if pos > 10, pos < duration - 15 {
-            libraryStore?.setResumePosition(pos, for: libID)
+        guard pos > 10, pos < duration - 15 else { return }
+        if queuePodcastEpisodeIDs.indices.contains(index) {
+            podcastStore?.setPlaybackPosition(pos, for: queuePodcastEpisodeIDs[index])
+        } else if queueLibraryIDs.indices.contains(index) {
+            libraryStore?.setResumePosition(pos, for: queueLibraryIDs[index])
         }
     }
 
     private func clearResumeForTrack(at index: Int) {
-        guard queueLibraryIDs.indices.contains(index) else { return }
-        libraryStore?.clearResumePosition(for: queueLibraryIDs[index])
+        if queuePodcastEpisodeIDs.indices.contains(index) {
+            podcastStore?.clearResumePosition(for: queuePodcastEpisodeIDs[index])
+        } else if queueLibraryIDs.indices.contains(index) {
+            libraryStore?.clearResumePosition(for: queueLibraryIDs[index])
+        }
     }
 
     private var isGaplessEnabled: Bool {
@@ -860,6 +1016,9 @@ class AudioEngine: ObservableObject {
 
         if isAutomatic {
             clearResumeForTrack(at: currentIndex)
+            if queuePodcastEpisodeIDs.indices.contains(currentIndex) {
+                podcastStore?.markEpisodePlayed(queuePodcastEpisodeIDs[currentIndex])
+            }
         }
 
         if isAutomatic && repeatMode == .one {

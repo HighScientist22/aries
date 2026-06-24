@@ -12,6 +12,7 @@ import UniformTypeIdentifiers
 struct HomeView: View {
     @ObservedObject var engine: AudioEngine
     @ObservedObject var library: LibraryStore
+    @EnvironmentObject var podcastStore: PodcastStore
     @EnvironmentObject var theme: AlbumTheme
     @EnvironmentObject var navigation: AppNavigation
 
@@ -19,6 +20,7 @@ struct HomeView: View {
     @State private var activityTab: RecentActivityTab = .added
     @State private var detailAlbum: AlbumGroup?
     @State private var detailArtist: ArtistGroup?
+    @State private var detailPodcastFeed: PodcastFeed?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @AppStorage("albumGridDensity") private var albumGridDensity = AlbumGridDensity.comfortable.rawValue
     @AppStorage(LiquidGlassSettings.enabledKey) private var liquidGlassEnabled = true
@@ -41,8 +43,20 @@ struct HomeView: View {
                         library: library,
                         query: navigation.librarySearchQuery
                     )
-                } else if library.tracks.isEmpty {
+                } else if library.tracks.isEmpty && podcastStore.feeds.isEmpty {
                     emptyLibrary
+                } else if let feed = detailPodcastFeed {
+                    PodcastFeedDetailView(
+                        feed: feed,
+                        podcastStore: podcastStore,
+                        engine: engine,
+                        accent: theme.accent,
+                        onBack: {
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.88)) {
+                                detailPodcastFeed = nil
+                            }
+                        }
+                    )
                 } else if let album = detailAlbum {
                     AlbumDetailView(
                         album: album,
@@ -72,6 +86,19 @@ struct HomeView: View {
                         tracksBrowser
                     case .favorites:
                         favoritesBrowser
+                    case .listenLater:
+                        listenLaterBrowser
+                    case .podcasts:
+                        PodcastBrowserView(
+                            podcastStore: podcastStore,
+                            engine: engine,
+                            accent: theme.accent,
+                            onOpenFeed: { feed in
+                                withAnimation(.spring(response: 0.4, dampingFraction: 0.88)) {
+                                    detailPodcastFeed = feed
+                                }
+                            }
+                        )
                     case .genres:
                         genresBrowser
                     case .composers:
@@ -151,6 +178,8 @@ struct HomeView: View {
                 sidebarAction(icon: "magnifyingglass", label: "Search") {
                     navigation.openLibrarySearch()
                 }
+                sidebarItem(.listenLater, icon: "clock.badge.checkmark", label: "Listen Later")
+                sidebarItem(.podcasts, icon: "mic.fill", label: "Podcasts")
                 sidebarItem(.stats, icon: "chart.bar.fill", label: "Stats")
                 if !library.duplicateGroups.isEmpty {
                     sidebarItem(.duplicates, icon: "doc.on.doc", label: "Duplicates")
@@ -363,6 +392,7 @@ struct HomeView: View {
                 selectedSection = section
                 detailAlbum = nil
                 detailArtist = nil
+                detailPodcastFeed = nil
             }
         } label: {
             HStack(spacing: 10) {
@@ -412,6 +442,22 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 32) {
                 greetingHeader
                 statsRow
+                ListenLaterRow(
+                    tracks: library.listenLaterTracks,
+                    accent: theme.accent,
+                    artworkURL: { library.artworkURL(for: $0) },
+                    engine: engine,
+                    library: library,
+                    onViewAll: { selectSection(.listenLater) }
+                )
+                if !podcastStore.feeds.isEmpty {
+                    PodcastHomeSection(
+                        podcastStore: podcastStore,
+                        engine: engine,
+                        accent: theme.accent,
+                        onViewAll: { selectSection(.podcasts) }
+                    )
+                }
                 if !library.focusMixes.isEmpty {
                     FocusMixRow(
                         mixes: library.focusMixes,
@@ -1229,6 +1275,56 @@ struct HomeView: View {
         }
     }
 
+    private var listenLaterBrowser: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("Listen Later")
+                    .font(.system(size: 32, weight: .regular, design: .serif))
+                    .padding(.top, 24)
+
+                if library.listenLaterTracks.isEmpty {
+                    LibraryEmptySectionHint(
+                        icon: "clock.badge.checkmark",
+                        title: "Nothing saved yet",
+                        message: "Right-click any track and choose Add to Listen Later."
+                    )
+                } else {
+                    HStack(spacing: 12) {
+                        Button {
+                            engine.playFromLibrary(library.listenLaterTracks, startIndex: 0, store: library)
+                        } label: {
+                            Label("Play All", systemImage: "play.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 10)
+                                .background(theme.accent, in: Capsule())
+                                .foregroundStyle(.white)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    LazyVStack(spacing: 2) {
+                        ForEach(library.listenLaterTracks) { track in
+                            trackListRow(
+                                track,
+                                action: { play(track) }
+                            )
+                            .contextMenu {
+                                Button {
+                                    library.removeFromListenLater(track)
+                                } label: {
+                                    Label("Mark as Listened", systemImage: "checkmark.circle")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 48)
+        }
+    }
+
     private var favoritesBrowser: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -1414,6 +1510,11 @@ struct HomeView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
+
+                Button("Subscribe to Podcast") {
+                    selectSection(.podcasts)
+                }
+                .buttonStyle(.bordered)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1522,6 +1623,7 @@ struct HomeView: View {
             selectedSection = section
             detailAlbum = nil
             detailArtist = nil
+            detailPodcastFeed = nil
         }
     }
 
@@ -1618,7 +1720,7 @@ private struct RecentAlbumItem: Identifiable {
 }
 
 private enum HomeSection: Hashable {
-    case home, stats, duplicates, albums, artists, genres, composers, folders, years, tracks, favorites
+    case home, stats, duplicates, albums, artists, genres, composers, folders, years, tracks, favorites, listenLater, podcasts
     case genre(String)
     case composer(String)
     case folder(String)

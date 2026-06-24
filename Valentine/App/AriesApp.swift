@@ -25,6 +25,7 @@ struct AriesApp: App {
     @AppStorage("appTheme") private var appTheme = 0
     @StateObject private var engine = AudioEngine()
     @StateObject private var library = LibraryStore()
+    @StateObject private var podcastStore = PodcastStore()
     @StateObject private var theme = AlbumTheme()
     @StateObject private var navigation = AppNavigation()
 
@@ -33,6 +34,7 @@ struct AriesApp: App {
             RootView()
                 .environmentObject(engine)
                 .environmentObject(library)
+                .environmentObject(podcastStore)
                 .environmentObject(theme)
                 .environmentObject(navigation)
         }
@@ -63,6 +65,7 @@ struct AriesApp: App {
 struct RootView: View {
     @EnvironmentObject var engine: AudioEngine
     @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var podcastStore: PodcastStore
     @EnvironmentObject var theme: AlbumTheme
     @EnvironmentObject var navigation: AppNavigation
     @Environment(\.openWindow) var openWindow
@@ -90,6 +93,7 @@ struct RootView: View {
             configureWindow(forMiniPlayer: isMiniPlayerMode)
             theme.update(from: engine.currentTrack?.nsImage, key: engine.currentTrack?.id.uuidString)
             engine.attachLibraryStore(library)
+            engine.attachPodcastStore(podcastStore)
             MenuBarController.shared.attach(engine: engine, theme: theme)
         }
         .onChange(of: engine.currentTrackIndex) { _, _ in
@@ -105,9 +109,23 @@ struct RootView: View {
             LyricsEditorView()
                 .environmentObject(engine)
         }
+        .sheet(item: $navigation.trackMetadataToEdit) { track in
+            TrackMetadataEditorView(track: track, library: library)
+        }
+        .sheet(item: $navigation.albumMetadataToEdit) { album in
+            AlbumMetadataEditorView(album: album, library: library)
+        }
         .sheet(isPresented: $engine.showMutagenInstaller) {
             MutagenInstallerView {
-                engine.showLyricsEditor = true
+                if let track = navigation.pendingMetadataTrack {
+                    navigation.trackMetadataToEdit = track
+                    navigation.pendingMetadataTrack = nil
+                } else if let album = navigation.pendingAlbumMetadata {
+                    navigation.albumMetadataToEdit = album
+                    navigation.pendingAlbumMetadata = nil
+                } else {
+                    engine.showLyricsEditor = true
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .addFile)) { _ in engine.showAddFileDialog() }

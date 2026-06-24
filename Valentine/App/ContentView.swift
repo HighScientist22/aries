@@ -11,6 +11,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @EnvironmentObject var engine: AudioEngine
     @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var podcastStore: PodcastStore
     @EnvironmentObject var theme: AlbumTheme
     @EnvironmentObject var navigation: AppNavigation
     @Environment(\.colorScheme) var colorScheme
@@ -28,7 +29,7 @@ struct ContentView: View {
     private let navToPlayerAnimation = Animation.spring(response: 0.32, dampingFraction: 0.9, blendDuration: 0)
 
     private var isLibraryEmpty: Bool {
-        engine.queue.isEmpty && library.tracks.isEmpty
+        engine.queue.isEmpty && library.tracks.isEmpty && podcastStore.feeds.isEmpty
     }
 
     private var isHomeVisible: Bool {

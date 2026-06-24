@@ -10,6 +10,7 @@ struct AlbumDetailView: View {
     @ObservedObject var engine: AudioEngine
     @ObservedObject var library: LibraryStore
     @EnvironmentObject var theme: AlbumTheme
+    @EnvironmentObject var navigation: AppNavigation
     let onBack: () -> Void
     var onOpenAlbum: ((AlbumGroup) -> Void)? = nil
 
@@ -75,6 +76,16 @@ struct AlbumDetailView: View {
 
                                 Button(action: { engine.startRadio(seed: .album(album), store: library) }) {
                                     Label("Radio", systemImage: "dot.radiowaves.left.and.right")
+                                        .font(.subheadline.weight(.medium))
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 10)
+                                        .background(.ultraThinMaterial, in: Capsule())
+                                        .ariesGlass(.regular, in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+
+                                Button(action: openAlbumMetadataEditor) {
+                                    Label("Edit", systemImage: "pencil")
                                         .font(.subheadline.weight(.medium))
                                         .padding(.horizontal, 16)
                                         .padding(.vertical, 10)
@@ -246,5 +257,16 @@ struct AlbumDetailView: View {
 
     private func playTrack(at index: Int) {
         engine.playFromLibrary(album.tracks, startIndex: index, store: library)
+    }
+
+    private func openAlbumMetadataEditor() {
+        let path = MutagenInstallerService.mutagenTargetDirectory.appendingPathComponent("mutagen").path
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
+            navigation.openAlbumMetadataEditor(for: album)
+        } else {
+            navigation.pendingAlbumMetadata = album
+            engine.showMutagenInstaller = true
+        }
     }
 }

@@ -20,5 +20,7 @@
 			</array>
 		</dict>
 	</array>
+	<key>LSRequiresNativeExecution</key>
+	<true/>
 </dict>
 </plist>

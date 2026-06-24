@@ -201,6 +201,8 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
+				ARCHS = arm64;
+				EXCLUDED_ARCHS = x86_64;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -263,6 +265,8 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				ARCHS = arm64;
+				EXCLUDED_ARCHS = x86_64;
 				SDKROOT = macosx;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
@@ -306,6 +310,8 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.2;
+				ARCHS = arm64;
+				EXCLUDED_ARCHS = x86_64;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.HighScientist22.Aries;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -354,6 +360,8 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.2;
+				ARCHS = arm64;
+				EXCLUDED_ARCHS = x86_64;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.HighScientist22.Aries;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;

@@ -22,6 +22,7 @@ class LibraryStore: ObservableObject {
     @Published private(set) var favoriteTrackIDs: Set<UUID> = []
     @Published private(set) var favoriteAlbumIDs: Set<String> = []
     @Published private(set) var favoriteArtistIDs: Set<String> = []
+    @Published private(set) var listenLaterTrackIDs: [UUID] = []
     @Published private(set) var playlists: [SavedPlaylist] = []
     @Published private(set) var isImporting = false
     @Published private(set) var listeningStats = ListeningStats()
@@ -44,6 +45,7 @@ class LibraryStore: ObservableObject {
     private let indexURL: URL
     private let recentURL: URL
     private let favoritesURL: URL
+    private let listenLaterURL: URL
     private let playlistsURL: URL
     private let playlistFoldersURL: URL
     private let listeningStatsURL: URL
@@ -64,6 +66,7 @@ class LibraryStore: ObservableObject {
         indexURL = baseURL.appendingPathComponent("library.json")
         recentURL = baseURL.appendingPathComponent("recent.json")
         favoritesURL = baseURL.appendingPathComponent("favorites.json")
+        listenLaterURL = baseURL.appendingPathComponent("listen-later.json")
         playlistsURL = baseURL.appendingPathComponent("playlists.json")
         playlistFoldersURL = baseURL.appendingPathComponent("playlist-folders.json")
         listeningStatsURL = baseURL.appendingPathComponent("listening-stats.json")
@@ -98,6 +101,10 @@ class LibraryStore: ObservableObject {
             favoriteTrackIDs = Set(decoded.tracks)
             favoriteAlbumIDs = Set(decoded.albums)
             favoriteArtistIDs = Set(decoded.artists ?? [])
+        }
+        if let data = try? Data(contentsOf: listenLaterURL),
+           let decoded = try? JSONDecoder().decode([UUID].self, from: data) {
+            listenLaterTrackIDs = decoded
         }
         if let data = try? Data(contentsOf: playlistsURL),
            let decoded = try? JSONDecoder().decode([SavedPlaylist].self, from: data) {
@@ -371,6 +378,12 @@ class LibraryStore: ObservableObject {
         }
         if let track = tracks.first(where: { $0.id == id }) {
             recordListening(for: track)
+        }
+        if UserDefaults.standard.object(forKey: "removeFromListenLaterOnPlay") as? Bool ?? true {
+            if listenLaterTrackIDs.contains(id) {
+                listenLaterTrackIDs.removeAll { $0 == id }
+                persistListenLater()
+            }
         }
         scheduleRecentSave()
     }
@@ -686,6 +699,73 @@ class LibraryStore: ObservableObject {
         persistFavorites()
     }
 
+    var listenLaterTracks: [LibraryTrack] {
+        listenLaterTrackIDs.compactMap { id in tracks.first { $0.id == id } }
+    }
+
+    func isInListenLater(track: LibraryTrack) -> Bool {
+        listenLaterTrackIDs.contains(track.id)
+    }
+
+    func addToListenLater(_ track: LibraryTrack) {
+        guard !listenLaterTrackIDs.contains(track.id) else { return }
+        listenLaterTrackIDs.insert(track.id, at: 0)
+        persistListenLater()
+    }
+
+    func removeFromListenLater(_ track: LibraryTrack) {
+        listenLaterTrackIDs.removeAll { $0 == track.id }
+        persistListenLater()
+    }
+
+    func toggleListenLater(_ track: LibraryTrack) {
+        if listenLaterTrackIDs.contains(track.id) {
+            removeFromListenLater(track)
+        } else {
+            addToListenLater(track)
+        }
+    }
+
+    func updateTrackMetadata(_ trackID: UUID, metadata: EditableTrackMetadata) async throws {
+        try await applyTrackMetadata(trackID, metadata: metadata)
+        persist()
+        recomputeGroups()
+    }
+
+    func updateAlbumMetadata(_ album: AlbumGroup, metadata: AlbumEditableMetadata) async throws {
+        for track in album.tracks {
+            var trackMetadata = EditableTrackMetadata(from: track)
+            trackMetadata.artist = metadata.artist
+            trackMetadata.album = metadata.albumTitle
+            trackMetadata.genre = metadata.genre
+            trackMetadata.year = metadata.year
+            try await applyTrackMetadata(track.id, metadata: trackMetadata)
+        }
+        persist()
+        recomputeGroups()
+    }
+
+    private func applyTrackMetadata(_ trackID: UUID, metadata: EditableTrackMetadata) async throws {
+        guard let index = tracks.firstIndex(where: { $0.id == trackID }),
+              let url = resolveURL(for: tracks[index]) else {
+            throw NSError(domain: "LibraryStore", code: 1, userInfo: [NSLocalizedDescriptionKey: "Track not found"])
+        }
+        try await MetadataWriter.writeMetadata(to: url, metadata: metadata)
+        var track = Track(url: url)
+        await track.loadMetadata()
+        tracks[index].title = metadata.title.isEmpty ? track.title : metadata.title
+        tracks[index].artist = metadata.artist.isEmpty ? track.artist : metadata.artist
+        tracks[index].album = metadata.album.isEmpty ? track.album : metadata.album
+        tracks[index].genre = metadata.genre.isEmpty ? track.genre : metadata.genre
+        tracks[index].year = Int(metadata.year) ?? track.year
+        tracks[index].trackNumber = Int(metadata.trackNumber) ?? track.trackNumber
+        tracks[index].discNumber = Int(metadata.discNumber) ?? track.discNumber
+        tracks[index].composer = metadata.composer.isEmpty ? track.composer : metadata.composer
+        if let image = track.nsImage, let filename = saveArtwork(image) {
+            tracks[index].artworkFile = filename
+        }
+    }
+
     func createPlaylist(named name: String) -> SavedPlaylist {
         let playlist = SavedPlaylist(name: name)
         playlists.append(playlist)
@@ -862,6 +942,11 @@ class LibraryStore: ObservableObject {
         try? data.write(to: favoritesURL, options: .atomic)
     }
 
+    private func persistListenLater() {
+        guard let data = try? JSONEncoder().encode(listenLaterTrackIDs) else { return }
+        try? data.write(to: listenLaterURL, options: .atomic)
+    }
+
     private func persistPlaylists() {
         guard let data = try? JSONEncoder().encode(playlists) else { return }
         try? data.write(to: playlistsURL, options: .atomic)
@@ -941,7 +1026,7 @@ class LibraryStore: ObservableObject {
 
         var newRecords: [LibraryTrack] = []
         let artworkDir = artworkDirURL
-        let limit = min(8, max(4, ProcessInfo.processInfo.activeProcessorCount))
+        let limit = ImportConcurrency.limit
 
         await withTaskGroup(of: LibraryTrack?.self) { group in
             var iterator = toImport.makeIterator()

@@ -9,6 +9,7 @@ import AppKit
 struct LibraryPlaybackMenu: ViewModifier {
     @ObservedObject var engine: AudioEngine
     @ObservedObject var library: LibraryStore
+    @EnvironmentObject var navigation: AppNavigation
     let tracks: [LibraryTrack]
     let startIndex: Int
     var album: AlbumGroup? = nil
@@ -78,8 +79,25 @@ struct LibraryPlaybackMenu: ViewModifier {
 
             playlistMenu
 
+            if tracks.count == 1, let track = tracks.first {
+                Divider()
+                Button {
+                    library.toggleListenLater(track)
+                } label: {
+                    Label(
+                        library.isInListenLater(track: track) ? "Remove from Listen Later" : "Add to Listen Later",
+                        systemImage: library.isInListenLater(track: track) ? "clock.badge.checkmark.fill" : "clock.badge.checkmark"
+                    )
+                }
+            }
+
             if let album = resolvedAlbum {
                 Divider()
+                Button {
+                    openAlbumMetadataEditor(album)
+                } label: {
+                    Label("Edit Album Metadata", systemImage: "pencil")
+                }
                 Button {
                     library.toggleFavorite(album: album)
                 } label: {
@@ -130,6 +148,11 @@ struct LibraryPlaybackMenu: ViewModifier {
                         library.isFavorite(track: track) ? "Unfavorite" : "Favorite",
                         systemImage: library.isFavorite(track: track) ? "heart.fill" : "heart"
                     )
+                }
+                Button {
+                    openMetadataEditor(for: track)
+                } label: {
+                    Label("Edit Metadata", systemImage: "pencil")
                 }
                 if let url = library.resolveURL(for: track) {
                     Button {
@@ -224,6 +247,28 @@ struct LibraryPlaybackMenu: ViewModifier {
     private func addToNewPlaylist() {
         let playlist = library.createPlaylist(named: "Playlist \(library.playlists.count + 1)")
         library.addTracks(trackIDs, to: playlist.id)
+    }
+
+    private func openMetadataEditor(for track: LibraryTrack) {
+        let path = MutagenInstallerService.mutagenTargetDirectory.appendingPathComponent("mutagen").path
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
+            navigation.openMetadataEditor(for: track)
+        } else {
+            navigation.pendingMetadataTrack = track
+            engine.showMutagenInstaller = true
+        }
+    }
+
+    private func openAlbumMetadataEditor(_ album: AlbumGroup) {
+        let path = MutagenInstallerService.mutagenTargetDirectory.appendingPathComponent("mutagen").path
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
+            navigation.openAlbumMetadataEditor(for: album)
+        } else {
+            navigation.pendingAlbumMetadata = album
+            engine.showMutagenInstaller = true
+        }
     }
 }
 
