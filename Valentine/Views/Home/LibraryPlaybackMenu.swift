@@ -69,6 +69,8 @@ struct LibraryPlaybackMenu: ViewModifier {
 
             Divider()
 
+            similarMenu
+
             radioMenu
 
             Divider()
@@ -128,6 +130,19 @@ struct LibraryPlaybackMenu: ViewModifier {
                         systemImage: library.isFavorite(track: track) ? "heart.fill" : "heart"
                     )
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var similarMenu: some View {
+        if tracks.count == 1, let track = tracks.first {
+            Button {
+                let similar = LibrarySimilar.tracks(for: track, in: library)
+                guard !similar.isEmpty else { return }
+                engine.playFromLibrary(similar, startIndex: 0, store: library)
+            } label: {
+                Label("Play Similar", systemImage: "wand.and.stars")
             }
         }
     }

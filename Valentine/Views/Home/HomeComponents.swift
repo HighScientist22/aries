@@ -132,10 +132,23 @@ struct LibraryTrackRow: View {
     let track: LibraryTrack
     let artworkURL: URL?
     let accent: Color
+    var playCount: Int = 0
+    var lastPlayed: Date? = nil
     var isFavorite: Bool = false
     var onFavorite: (() -> Void)? = nil
     let action: () -> Void
     @State private var isHovered = false
+
+    private var metadataLine: String? {
+        var parts: [String] = []
+        if playCount > 0 {
+            parts.append(playCount == 1 ? "1 play" : "\(playCount) plays")
+        }
+        if let lastPlayed {
+            parts.append(RelativeDateFormatting.lastPlayed(lastPlayed))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
 
     var body: some View {
         Button(action: action) {
@@ -149,6 +162,12 @@ struct LibraryTrackRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                    if let metadataLine {
+                        Text(metadataLine)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
                 }
                 Spacer()
                 Text(track.duration.formatTime())
@@ -192,6 +211,34 @@ struct HomeSectionRow<Content: View>: View {
     }
 }
 
+struct LibraryEmptySectionHint: View {
+    let icon: String
+    let title: String
+    let message: String
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 40))
+                .foregroundStyle(.secondary)
+            Text(title)
+                .font(.headline)
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            if let actionTitle, let action {
+                Button(actionTitle, action: action)
+                    .buttonStyle(.bordered)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 48)
+    }
+}
+
 struct LibraryMediaTile: View {
     enum Style { case album, artist }
 
@@ -200,11 +247,10 @@ struct LibraryMediaTile: View {
     let artworkURL: URL?
     let style: Style
     let accent: Color
+    var artSize: CGFloat = 148
     let onOpen: () -> Void
     let onPlay: () -> Void
     @State private var isHovered = false
-
-    private let artSize: CGFloat = 148
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {

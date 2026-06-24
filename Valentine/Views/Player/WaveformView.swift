@@ -1,32 +1,48 @@
 import SwiftUI
 
+enum WaveformTimeStyle {
+    case inlineTotal
+    case hidden
+}
+
 struct WaveformView: View {
     @ObservedObject var engine: AudioEngine
+    var timeStyle: WaveformTimeStyle = .inlineTotal
+    var interactive: Bool = true
+    var playedOpacity: Double = 0.92
+    var unplayedOpacity: Double = 0.28
 
     var body: some View {
-        VStack(spacing: 8) {
+        HStack(alignment: .center, spacing: 10) {
+            if timeStyle == .inlineTotal {
+                Text(formatTime(engine.currentTime))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 38, alignment: .trailing)
+            }
+
             GeometryReader { geometry in
                 Canvas { context, size in
-                    drawWaveform(context: &context, size: size)
+                    drawRoonWaveform(context: &context, size: size)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            seek(to: value.location.x, in: geometry.size.width)
-                        }
+                    interactive
+                        ? DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                seek(to: value.location.x, in: geometry.size.width)
+                            }
+                        : nil
                 )
             }
 
-            HStack {
-                Text(formatTime(engine.currentTime))
-                Spacer()
-                Text("-\(formatTime(max(0, engine.duration - engine.currentTime)))")
+            if timeStyle == .inlineTotal {
+                Text(formatTime(engine.duration))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 38, alignment: .leading)
             }
-            .font(.caption)
-            .foregroundColor(.primary.opacity(0.8))
-            .monospacedDigit()
         }
     }
 
@@ -35,30 +51,52 @@ struct WaveformView: View {
         return CGFloat(engine.currentTime / engine.duration)
     }
 
-    private func drawWaveform(context: inout GraphicsContext, size: CGSize) {
-        let points = engine.waveformPoints
-        let barCount = max(points.count, 50)
-        let spacing: CGFloat = 2
-        let barWidth = max(2, (size.width - CGFloat(barCount - 1) * spacing) / CGFloat(barCount))
+    private func resampledPoints(for width: CGFloat) -> [CGFloat] {
+        let source = engine.waveformPoints
+        let targetCount = max(48, Int(width / 2))
+        guard !source.isEmpty else {
+            return Array(repeating: 0.1, count: targetCount)
+        }
+        guard source.count > 1 else {
+            return Array(repeating: CGFloat(source[0]), count: targetCount)
+        }
+
+        return (0..<targetCount).map { index in
+            let position = CGFloat(index) / CGFloat(targetCount - 1) * CGFloat(source.count - 1)
+            let lower = Int(position)
+            let upper = min(lower + 1, source.count - 1)
+            let fraction = position - CGFloat(lower)
+            let lowerValue = CGFloat(source[lower])
+            let upperValue = CGFloat(source[upper])
+            return lowerValue + (upperValue - lowerValue) * fraction
+        }
+    }
+
+    private func drawRoonWaveform(context: inout GraphicsContext, size: CGSize) {
+        let barWidth: CGFloat = 1
+        let barGap: CGFloat = 1
+        let pitch = barWidth + barGap
+        let barCount = max(1, Int((size.width + barGap) / pitch))
+        let points = resampledPoints(for: size.width)
+        let centerY = size.height / 2
+        let maxHalfHeight = size.height * 0.44
         let progress = currentProgress
+        let playedBoundaryX = progress * size.width
 
         for index in 0..<barCount {
-            let amplitude: CGFloat
-            if points.isEmpty {
-                amplitude = 0.15
-            } else {
-                amplitude = max(0.05, CGFloat(points[index]))
-            }
+            let sampleIndex = min(points.count - 1, Int(CGFloat(index) / CGFloat(max(barCount - 1, 1)) * CGFloat(points.count - 1)))
+            let amplitude = max(0.05, points[sampleIndex]) * maxHalfHeight
+            let x = CGFloat(index) * pitch + barWidth / 2
+            let isPlayed = x <= playedBoundaryX
 
-            let barProgress = CGFloat(index) / CGFloat(barCount)
-            let isPlayed = barProgress <= progress
-            let height = max(4, amplitude * size.height)
-            let x = CGFloat(index) * (barWidth + spacing)
-            let rect = CGRect(x: x, y: size.height - height, width: barWidth, height: height)
-            let path = Path(roundedRect: rect, cornerRadius: barWidth / 2)
-            context.fill(
-                path,
-                with: .color(isPlayed ? .primary : .primary.opacity(points.isEmpty ? 0.2 : 0.3))
+            var bar = Path()
+            bar.move(to: CGPoint(x: x, y: centerY - amplitude))
+            bar.addLine(to: CGPoint(x: x, y: centerY + amplitude))
+
+            context.stroke(
+                bar,
+                with: .color(.primary.opacity(isPlayed ? playedOpacity : unplayedOpacity)),
+                lineWidth: barWidth
             )
         }
     }

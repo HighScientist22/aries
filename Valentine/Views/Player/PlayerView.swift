@@ -55,10 +55,6 @@ struct PlayerView: View {
             .animation(.spring(response: 0.45, dampingFraction: 0.75), value: engine.currentTrack?.id)
 
             Spacer(minLength: 0)
-            WaveformView(engine: engine)
-                .frame(height: 50)
-                .padding(.horizontal, 32)
-                .layoutPriority(1)
 
             VStack(spacing: 4) {
                 HStack(spacing: 8) {
@@ -165,6 +161,11 @@ struct PlayerView: View {
             Spacer(minLength: 0)
 
             PlaybackControlsView(engine: engine)
+                .layoutPriority(2)
+
+            WaveformView(engine: engine)
+                .frame(height: 36)
+                .padding(.horizontal, 32)
                 .layoutPriority(2)
 
             Spacer(minLength: 0)

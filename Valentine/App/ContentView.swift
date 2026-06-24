@@ -355,52 +355,71 @@ struct HoverZoomButton: View {
 // Compact bar shown on Home when a queue is active — tap to return to the player.
 private struct HomeNowPlayingBar: View {
     @ObservedObject var engine: AudioEngine
+    @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var theme: AlbumTheme
+    @AppStorage("showHomeWaveform") private var showHomeWaveform = true
     let accent: Color
     let onExpand: () -> Void
     @State private var isHovered = false
 
     var body: some View {
-        HStack(spacing: 14) {
-            if let art = engine.currentTrack?.albumArt {
-                art
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 48, height: 48)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            }
-
-            Button(action: onExpand) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(engine.currentTrack?.title ?? "")
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Text(engine.currentTrack?.artist ?? "")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+        VStack(spacing: 10) {
+            HStack(spacing: 14) {
+                if let art = engine.currentTrack?.albumArt {
+                    art
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 48, height: 48)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
 
-            Button {
-                engine.togglePlayback()
-            } label: {
-                Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.title3)
-                    .frame(width: 36, height: 36)
-                    .background(accent.opacity(0.85), in: Circle())
-                    .foregroundStyle(.white)
-            }
-            .buttonStyle(.plain)
+                Button(action: onExpand) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(engine.currentTrack?.title ?? "")
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        Text(engine.currentTrack?.artist ?? "")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
 
-            Button(action: onExpand) {
-                Image(systemName: "chevron.up")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24, height: 24)
+                if let libraryTrack = currentLibraryTrack {
+                    FavoriteHeartButton(
+                        isFavorite: library.isFavorite(track: libraryTrack),
+                        accent: accent
+                    ) {
+                        library.toggleFavorite(track: libraryTrack)
+                    }
+                }
+
+                Button {
+                    engine.togglePlayback()
+                } label: {
+                    Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.title3)
+                        .frame(width: 36, height: 36)
+                        .background(accent.opacity(0.85), in: Circle())
+                        .foregroundStyle(.white)
+                }
+                .buttonStyle(.plain)
+
+                Button(action: onExpand) {
+                    Image(systemName: "chevron.up")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+
+            if showHomeWaveform {
+                WaveformView(engine: engine, timeStyle: .inlineTotal, playedOpacity: 0.88, unplayedOpacity: 0.24)
+                    .frame(height: 28)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -413,5 +432,10 @@ private struct HomeNowPlayingBar: View {
         .scaleEffect(isHovered ? 1.01 : 1)
         .animation(.spring(response: 0.28, dampingFraction: 0.75), value: isHovered)
         .onHover { isHovered = $0 }
+    }
+
+    private var currentLibraryTrack: LibraryTrack? {
+        guard let id = engine.currentLibraryTrackID else { return nil }
+        return library.tracks.first { $0.id == id }
     }
 }

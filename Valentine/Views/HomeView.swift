@@ -19,9 +19,13 @@ struct HomeView: View {
     @State private var activityTab: RecentActivityTab = .added
     @State private var detailAlbum: AlbumGroup?
     @State private var detailArtist: ArtistGroup?
+    @AppStorage("albumGridDensity") private var albumGridDensity = AlbumGridDensity.comfortable.rawValue
 
     private var albums: [AlbumGroup] { library.albumGroups }
     private var artists: [ArtistGroup] { library.artistGroups }
+    private var gridDensity: AlbumGridDensity {
+        AlbumGridDensity(rawValue: albumGridDensity) ?? .comfortable
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -546,7 +550,10 @@ struct HomeView: View {
                     .padding(.top, 24)
 
                 if !albums.isEmpty {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 180), spacing: 20)], spacing: 24) {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: gridDensity.gridMinimum, maximum: gridDensity.gridMaximum), spacing: 20)],
+                        spacing: 24
+                    ) {
                         ForEach(albums) { album in
                             LibraryMediaTile(
                                 title: album.title,
@@ -554,6 +561,7 @@ struct HomeView: View {
                                 artworkURL: library.artworkURL(for: album.artworkFile),
                                 style: .album,
                                 accent: theme.accent,
+                                artSize: gridDensity.tileSize,
                                 onOpen: { openAlbum(album) },
                                 onPlay: { playAlbum(album) }
                             )
@@ -563,7 +571,10 @@ struct HomeView: View {
                 }
 
                 if !artists.isEmpty {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 180), spacing: 20)], spacing: 24) {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: gridDensity.gridMinimum, maximum: gridDensity.gridMaximum), spacing: 20)],
+                        spacing: 24
+                    ) {
                         ForEach(artists) { artist in
                             LibraryMediaTile(
                                 title: artist.name,
@@ -571,6 +582,7 @@ struct HomeView: View {
                                 artworkURL: library.artworkURL(for: artist.artworkFile),
                                 style: .artist,
                                 accent: theme.accent,
+                                artSize: gridDensity.tileSize,
                                 onOpen: { openArtist(artist) },
                                 onPlay: { playArtist(artist) }
                             )
@@ -593,12 +605,7 @@ struct HomeView: View {
 
                 LazyVStack(spacing: 2) {
                     ForEach(library.tracks) { track in
-                        LibraryTrackRow(
-                            track: track,
-                            artworkURL: library.artworkURL(for: track),
-                            accent: theme.accent
-                        ) { play(track) }
-                        .libraryPlaybackMenu(engine: engine, library: library, tracks: [track])
+                        trackListRow(track)
                     }
                 }
             }
@@ -614,6 +621,15 @@ struct HomeView: View {
                     .font(.system(size: 32, weight: .regular, design: .serif))
                     .padding(.top, 24)
 
+                if library.genreGroups.isEmpty {
+                    LibraryEmptySectionHint(
+                        icon: "guitars",
+                        title: "No genres found",
+                        message: "Add genre tags to your files, or run Identify Library to pull metadata from MusicBrainz.",
+                        actionTitle: "Open Library Settings",
+                        action: { navigation.openSettings(tab: .library) }
+                    )
+                } else {
                 LazyVGrid(
                     columns: [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 16)],
                     spacing: 16
@@ -640,6 +656,7 @@ struct HomeView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                }
                 }
             }
             .padding(.horizontal, 32)
@@ -706,12 +723,7 @@ struct HomeView: View {
                             .font(.title3.weight(.semibold))
                         LazyVStack(spacing: 2) {
                             ForEach(genre.tracks) { track in
-                                LibraryTrackRow(
-                                    track: track,
-                                    artworkURL: library.artworkURL(for: track),
-                                    accent: theme.accent
-                                ) { play(track) }
-                                .libraryPlaybackMenu(engine: engine, library: library, tracks: [track])
+                                trackListRow(track)
                             }
                         }
                     }
@@ -735,6 +747,19 @@ struct HomeView: View {
                         playCount: library.totalPlayCount,
                         accent: theme.accent
                     )
+                } else {
+                    LibraryEmptySectionHint(
+                        icon: "chart.bar",
+                        title: "No listening history yet",
+                        message: "Play some tracks and your stats, charts, and exports will appear here."
+                    )
+                }
+
+                HStack(spacing: 12) {
+                    Button("Export JSON") { exportListeningStats(asJSON: true) }
+                        .buttonStyle(.bordered)
+                    Button("Export CSV") { exportListeningStats(asJSON: false) }
+                        .buttonStyle(.bordered)
                 }
 
                 GenreListeningChart(
@@ -871,12 +896,7 @@ struct HomeView: View {
                             .font(.title3.weight(.semibold))
                         LazyVStack(spacing: 2) {
                             ForEach(yearGroup.tracks) { track in
-                                LibraryTrackRow(
-                                    track: track,
-                                    artworkURL: library.artworkURL(for: track),
-                                    accent: theme.accent
-                                ) { play(track) }
-                                .libraryPlaybackMenu(engine: engine, library: library, tracks: [track])
+                                trackListRow(track)
                             }
                         }
                     }
@@ -910,14 +930,11 @@ struct HomeView: View {
                                 .font(.title3.weight(.semibold))
                             LazyVStack(spacing: 2) {
                                 ForEach(library.favoriteTracks) { track in
-                                    LibraryTrackRow(
-                                        track: track,
-                                        artworkURL: library.artworkURL(for: track),
-                                        accent: theme.accent,
+                                    trackListRow(
+                                        track,
                                         isFavorite: true,
                                         onFavorite: { library.toggleFavorite(track: track) }
-                                    ) { play(track) }
-                                    .libraryPlaybackMenu(engine: engine, library: library, tracks: [track])
+                                    )
                                 }
                             }
                         }
@@ -964,14 +981,9 @@ struct HomeView: View {
 
                     LazyVStack(spacing: 2) {
                         ForEach(Array(playlistTracks.enumerated()), id: \.element.id) { index, track in
-                            LibraryTrackRow(
-                                track: track,
-                                artworkURL: library.artworkURL(for: track),
-                                accent: theme.accent
-                            ) {
+                            trackListRow(track) {
                                 engine.playFromLibrary(playlistTracks, startIndex: index, store: library)
                             }
-                            .libraryPlaybackMenu(engine: engine, library: library, tracks: [track])
                             .contextMenu {
                                 if playlist?.isSmart != true {
                                     Button(role: .destructive) {
@@ -1003,6 +1015,7 @@ struct HomeView: View {
                             artworkURL: library.artworkURL(for: album.artworkFile),
                             style: .album,
                             accent: theme.accent,
+                            artSize: gridDensity.tileSize,
                             onOpen: { openAlbum(album) },
                             onPlay: { playAlbum(album) }
                         )
@@ -1026,6 +1039,7 @@ struct HomeView: View {
                             artworkURL: library.artworkURL(for: artist.artworkFile),
                             style: .artist,
                             accent: theme.accent,
+                            artSize: gridDensity.tileSize,
                             onOpen: { openArtist(artist) },
                             onPlay: { playArtist(artist) }
                         )
@@ -1035,29 +1049,73 @@ struct HomeView: View {
             }
             .scrollClipDisabled()
         }
-        .frame(height: 218)
+        .frame(height: gridDensity.rowHeight)
     }
 
     private var emptyLibrary: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 20) {
             Image(systemName: "music.note.house")
                 .font(.system(size: 52))
                 .foregroundStyle(theme.accent.opacity(0.7))
             Text("Your library is empty")
                 .font(.title3.weight(.semibold))
-            Text("Add a folder of music to build your library.")
+            Text("Import music, add a watched folder, or identify your library to get started.")
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Button("Add Music", action: importToLibrary)
-                .buttonStyle(.borderedProminent)
-                .tint(theme.accent)
-                .disabled(library.isImporting)
+                .frame(maxWidth: 360)
+
+            VStack(spacing: 10) {
+                Button("Add Music", action: importToLibrary)
+                    .buttonStyle(.borderedProminent)
+                    .tint(theme.accent)
+                    .disabled(library.isImporting)
+
+                Button("Add Watched Folder", action: addWatchedFolder)
+                    .buttonStyle(.bordered)
+
+                Button("Identify Library") {
+                    library.identifyLibrary()
+                }
+                .buttonStyle(.bordered)
+                .disabled(library.isIdentifying)
+
+                Button("Library Settings") {
+                    navigation.openSettings(tab: .library)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Helpers
+
+    @ViewBuilder
+    private func trackListRow(
+        _ track: LibraryTrack,
+        isFavorite: Bool = false,
+        onFavorite: (() -> Void)? = nil,
+        action: (() -> Void)? = nil
+    ) -> some View {
+        LibraryTrackRow(
+            track: track,
+            artworkURL: library.artworkURL(for: track),
+            accent: theme.accent,
+            playCount: library.playCount(for: track.id),
+            lastPlayed: library.lastPlayed(for: track.id),
+            isFavorite: isFavorite,
+            onFavorite: onFavorite
+        ) {
+            if let action {
+                action()
+            } else {
+                play(track)
+            }
+        }
+        .libraryPlaybackMenu(engine: engine, library: library, tracks: [track])
+    }
 
     private func greetingText() -> String {
         if let custom = UserDefaults.standard.string(forKey: "customGreeting"),
@@ -1180,6 +1238,29 @@ struct HomeView: View {
         let urls = MusicImportPanel.pickFiles(allowFolders: true)
         guard !urls.isEmpty else { return }
         library.importFiles(urls)
+    }
+
+    private func addWatchedFolder() {
+        guard let url = MusicImportPanel.pickFiles(allowFolders: true, allowMultiple: false).first else { return }
+        library.addWatchedFolder(url)
+    }
+
+    private func exportListeningStats(asJSON: Bool) {
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        if asJSON {
+            panel.nameFieldStringValue = "aries-listening-stats.json"
+            panel.allowedContentTypes = [.json]
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            guard let data = try? ListeningStatsExport.jsonData(from: library) else { return }
+            try? data.write(to: url)
+        } else {
+            panel.nameFieldStringValue = "aries-listening-stats.csv"
+            panel.allowedContentTypes = [.commaSeparatedText]
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            let csv = ListeningStatsExport.csvString(from: library)
+            try? csv.write(to: url, atomically: true, encoding: .utf8)
+        }
     }
 }
 

@@ -101,6 +101,7 @@ class LibraryStore: ObservableObject {
         if let data = try? Data(contentsOf: listeningStatsURL),
            let decoded = try? JSONDecoder().decode(ListeningStats.self, from: data) {
             listeningStats = decoded
+            backfillTrackPlayCountsIfNeeded()
         }
         if let data = try? Data(contentsOf: identificationURL),
            let decoded = try? JSONDecoder().decode(IdentificationStore.self, from: data) {
@@ -550,7 +551,26 @@ class LibraryStore: ObservableObject {
         if listeningStats.playHistory.count > playHistoryLimit {
             listeningStats.playHistory = Array(listeningStats.playHistory.prefix(playHistoryLimit))
         }
+        listeningStats.trackPlayCounts[track.id, default: 0] += 1
 
+        persistListeningStats()
+    }
+
+    func playCount(for trackID: UUID) -> Int {
+        listeningStats.trackPlayCounts[trackID, default: 0]
+    }
+
+    func lastPlayed(for trackID: UUID) -> Date? {
+        listeningStats.playHistory.first { $0.trackID == trackID }?.playedAt
+    }
+
+    private func backfillTrackPlayCountsIfNeeded() {
+        guard listeningStats.trackPlayCounts.isEmpty, !listeningStats.playHistory.isEmpty else { return }
+        var counts: [UUID: Int] = [:]
+        for entry in listeningStats.playHistory {
+            counts[entry.trackID, default: 0] += 1
+        }
+        listeningStats.trackPlayCounts = counts
         persistListeningStats()
     }
 

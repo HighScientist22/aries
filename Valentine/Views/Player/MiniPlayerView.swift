@@ -8,6 +8,7 @@ struct MiniPlayerView: View {
     @EnvironmentObject var navigation: AppNavigation
     @State private var showMiniLyrics = false
     @AppStorage("miniPlayerGlassMode") private var miniPlayerGlassMode = 0
+    @AppStorage("showHomeWaveform") private var showHomeWaveform = true
     @Environment(\.colorScheme) var colorScheme
     @ObservedObject var appearance = LyricsAppearanceManager.shared
     @State private var cachedMiniGreeting: String = ""
@@ -157,26 +158,9 @@ struct MiniPlayerView: View {
                         }
                     }
                     
-                    HStack(spacing: 8) {
-                        Text(formatTime(engine.currentTime))
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundColor(.secondary)
-                            .frame(width: 36, alignment: .trailing)
-                        
-                        Slider(value: Binding(
-                            get: {
-                                let validDuration = engine.duration > 0 ? engine.duration : 1
-                                return max(0, min(engine.currentTime, validDuration))
-                            },
-                            set: { engine.seek(to: $0) }
-                        ), in: 0...(engine.duration > 0 ? engine.duration : 1))
-                        .tint(.primary)
-                        .controlSize(.small)
-                        
-                        Text(formatTime(engine.duration))
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundColor(.secondary)
-                            .frame(width: 36, alignment: .leading)
+                    if showHomeWaveform {
+                        WaveformView(engine: engine, timeStyle: .hidden)
+                            .frame(height: 22)
                     }
                 }
             }

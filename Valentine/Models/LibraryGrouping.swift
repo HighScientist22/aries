@@ -46,7 +46,13 @@ nonisolated func groupAlbums(from tracks: [LibraryTrack]) -> [AlbumGroup] {
             tracks: ordered
         )
     }
-    .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    .sorted {
+        let artistOrder = $0.artist.localizedCaseInsensitiveCompare($1.artist)
+        if artistOrder != .orderedSame {
+            return artistOrder == .orderedAscending
+        }
+        return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+    }
 }
 
 nonisolated func groupArtists(from tracks: [LibraryTrack]) -> [ArtistGroup] {

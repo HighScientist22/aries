@@ -57,6 +57,8 @@ struct GeneralSettingsView: View {
     @AppStorage("miniPlayerGlassMode") private var miniPlayerGlassMode = 0
     @AppStorage("appTheme") private var appTheme = 0
     @AppStorage("customGreeting") private var customGreeting: String = ""
+    @AppStorage("showHomeWaveform") private var showHomeWaveform = true
+    @AppStorage("albumGridDensity") private var albumGridDensity = AlbumGridDensity.comfortable.rawValue
     @EnvironmentObject var navigation: AppNavigation
     @State private var selectGreetingText: Bool = false
 
@@ -114,6 +116,15 @@ struct GeneralSettingsView: View {
                     Text("Overlaps the end of each track with the next. Set to 0 to disable.")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                }
+            }
+
+            Section(header: Text("Library")) {
+                Toggle("Show waveform in home player bar", isOn: $showHomeWaveform)
+                Picker("Album grid density", selection: $albumGridDensity) {
+                    ForEach(AlbumGridDensity.allCases) { density in
+                        Text(density.label).tag(density.rawValue)
+                    }
                 }
             }
 

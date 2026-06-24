@@ -1102,7 +1102,7 @@ class AudioEngine: ObservableObject {
                 let totalFrames = Int(file.length)
                 guard totalFrames > 0 else { return }
 
-                let targetSamples = 100
+                let targetSamples = 384
                 let samplesPerPoint = max(1, totalFrames / targetSamples)
                 let chunkSize: AVAudioFrameCount = 16_384
 
