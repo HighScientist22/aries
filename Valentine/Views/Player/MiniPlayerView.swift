@@ -233,10 +233,10 @@ struct MiniPlayerView: View {
             ZStack {
                 if miniPlayerGlassMode == 1 {
                     Color.clear
-                        .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .ariesGlass(.clear, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 } else {
                     Color.clear
-                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .ariesGlass(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))

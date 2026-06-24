@@ -150,7 +150,7 @@ struct ArtistDetailView: View {
                             .padding(.horizontal, 16)
                             .padding(.vertical, 10)
                             .background(.ultraThinMaterial, in: Capsule())
-                            .glassEffect(.regular, in: Capsule())
+                            .ariesGlass(.regular, in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }

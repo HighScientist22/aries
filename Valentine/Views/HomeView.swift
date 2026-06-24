@@ -21,6 +21,7 @@ struct HomeView: View {
     @State private var detailArtist: ArtistGroup?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @AppStorage("albumGridDensity") private var albumGridDensity = AlbumGridDensity.comfortable.rawValue
+    @AppStorage(LiquidGlassSettings.enabledKey) private var liquidGlassEnabled = true
 
     private var albums: [AlbumGroup] { library.albumGroups }
     private var artists: [ArtistGroup] { library.artistGroups }
@@ -201,7 +202,7 @@ struct HomeView: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 20)
         }
-        .background(.ultraThinMaterial.opacity(0.55))
+        .background(.ultraThinMaterial.opacity(liquidGlassEnabled ? 0.55 : 0.9))
     }
 
     private var newPlaylistMenu: some View {
@@ -320,7 +321,7 @@ struct HomeView: View {
                 if isSelected {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(theme.accent.opacity(0.15))
-                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .ariesGlass(.regular, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
             }
         }
@@ -379,7 +380,7 @@ struct HomeView: View {
                 if isSelected {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(theme.accent.opacity(0.15))
-                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .ariesGlass(.regular, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
             }
         }
@@ -582,7 +583,7 @@ struct HomeView: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(.ultraThinMaterial.opacity(0.35))
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .ariesGlass(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -734,7 +735,7 @@ struct HomeView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(16)
                             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .ariesGlass(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
                         .buttonStyle(.plain)
                     }
@@ -791,7 +792,7 @@ struct HomeView: View {
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 10)
                                 .background(.ultraThinMaterial, in: Capsule())
-                                .glassEffect(.regular, in: Capsule())
+                                .ariesGlass(.regular, in: Capsule())
                         }
                         .buttonStyle(.plain)
                     }
@@ -854,7 +855,7 @@ struct HomeView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(16)
                                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .ariesGlass(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                             }
                             .buttonStyle(.plain)
                         }
@@ -910,7 +911,7 @@ struct HomeView: View {
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 10)
                                 .background(.ultraThinMaterial, in: Capsule())
-                                .glassEffect(.regular, in: Capsule())
+                                .ariesGlass(.regular, in: Capsule())
                         }
                         .buttonStyle(.plain)
                     }
@@ -1034,7 +1035,7 @@ struct HomeView: View {
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 10)
                                 .background(.ultraThinMaterial, in: Capsule())
-                                .glassEffect(.regular, in: Capsule())
+                                .ariesGlass(.regular, in: Capsule())
                         }
                         .buttonStyle(.plain)
                     }
@@ -1155,7 +1156,7 @@ struct HomeView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 20)
                             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .ariesGlass(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
                         .buttonStyle(.plain)
                     }

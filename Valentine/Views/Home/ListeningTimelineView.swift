@@ -40,7 +40,7 @@ struct ListeningTimelineView: View {
         .background {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(.ultraThinMaterial.opacity(0.5))
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .ariesGlass(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)

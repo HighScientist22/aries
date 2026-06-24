@@ -16,7 +16,7 @@ struct GlassCard<Content: View>: View {
             .background {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(.ultraThinMaterial.opacity(0.45))
-                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                    .ariesGlass(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)

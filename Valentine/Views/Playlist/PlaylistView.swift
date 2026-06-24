@@ -209,7 +209,7 @@ struct PlaylistView: View {
             .padding(8)
             .foregroundColor(.white)
             .background(Color.red.opacity(0.8))
-            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .ariesGlass(.interactive, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)

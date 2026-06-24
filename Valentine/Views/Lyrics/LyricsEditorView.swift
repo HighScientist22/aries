@@ -25,7 +25,7 @@ struct LyricsEditorView: View {
                     Label("Paste", systemImage: "doc.on.clipboard")
                 }
                 .padding(.horizontal, 8)
-                .glassEffect(.regular.interactive())
+                .ariesGlass(.interactive)
                 
                 Button(action: {
                     showSearch = true
@@ -33,7 +33,7 @@ struct LyricsEditorView: View {
                     Label("Search", systemImage: "magnifyingglass")
                 }
                 .padding(.horizontal, 8)
-                .glassEffect(.regular.interactive())
+                .ariesGlass(.interactive)
                 
                 Button(action: save) {
                     if isSaving {
@@ -47,7 +47,7 @@ struct LyricsEditorView: View {
                 .padding(.horizontal, 8)
                 .buttonStyle(.borderedProminent)
                 .tint(.accentColor)
-                .glassEffect(.regular.interactive())
+                .ariesGlass(.interactive)
                 .disabled(isSaving)
                 
                 Button(action: {

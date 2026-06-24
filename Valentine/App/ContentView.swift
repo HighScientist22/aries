@@ -24,7 +24,8 @@ struct ContentView: View {
     @AppStorage("lastNormalWidth") private var lastNormalWidth: Double = 900
     @AppStorage("lastNormalHeight") private var lastNormalHeight: Double = 600
 
-    private let navAnimation = Animation.spring(response: 0.46, dampingFraction: 0.88, blendDuration: 0.1)
+    private let navToHomeAnimation = Animation.spring(response: 0.26, dampingFraction: 0.94, blendDuration: 0)
+    private let navToPlayerAnimation = Animation.spring(response: 0.32, dampingFraction: 0.9, blendDuration: 0)
 
     private var isLibraryEmpty: Bool {
         engine.queue.isEmpty && library.tracks.isEmpty
@@ -47,20 +48,21 @@ struct ContentView: View {
                     if !engine.queue.isEmpty {
                         playerLayout(isWide: isWide)
                             .opacity(isHomeVisible ? 0 : 1)
-                            .scaleEffect(isHomeVisible ? 0.97 : 1, anchor: .center)
-                            .offset(x: isHomeVisible ? 28 : 0)
+                            .scaleEffect(isHomeVisible ? 0.98 : 1, anchor: .center)
+                            .offset(x: isHomeVisible ? 14 : 0)
+                            .blur(radius: isHomeVisible ? 2 : 0)
                             .allowsHitTesting(!isHomeVisible)
                     }
 
                     HomeView(engine: engine, library: library)
                         .opacity(isHomeVisible ? 1 : 0)
-                        .scaleEffect(isHomeVisible ? 1 : 0.97, anchor: .center)
-                        .offset(x: isHomeVisible ? 0 : -28)
+                        .scaleEffect(isHomeVisible ? 1 : 0.98, anchor: .center)
+                        .offset(x: isHomeVisible ? 0 : -14)
                         .allowsHitTesting(isHomeVisible)
                         .safeAreaInset(edge: .bottom, spacing: 12) {
                             if isHomeVisible, engine.currentTrack != nil {
                                 HomeNowPlayingBar(engine: engine, accent: theme.accent) {
-                                    withAnimation(navAnimation) { showHome = false }
+                                    withAnimation(navToHomeAnimation) { showHome = false }
                                 }
                                 .padding(.horizontal, 24)
                                 .padding(.bottom, 8)
@@ -69,23 +71,23 @@ struct ContentView: View {
                         }
                 }
             }
-            .animation(navAnimation, value: isHomeVisible)
+            .animation(isHomeVisible ? navToHomeAnimation : navToPlayerAnimation, value: isHomeVisible)
             .background(backgroundLayer)
             .task(id: backgroundArtKey) {
                 await loadHomeBackgroundArtwork()
             }
             .onChange(of: navigation.artistNameToOpen) { _, name in
                 guard name != nil else { return }
-                withAnimation(navAnimation) { showHome = true }
+                withAnimation(navToHomeAnimation) { showHome = true }
             }
             .onChange(of: navigation.albumIDToOpen) { _, albumID in
                 guard albumID != nil else { return }
-                withAnimation(navAnimation) { showHome = true }
+                withAnimation(navToHomeAnimation) { showHome = true }
             }
             .toolbar {
                 ToolbarItem(placement: .navigation) {
                     Button(action: {
-                        withAnimation(navAnimation) {
+                        withAnimation(navToPlayerAnimation) {
                             isPlaylistVisible.toggle()
                         }
                     }) {
@@ -95,7 +97,7 @@ struct ContentView: View {
                 }
                 ToolbarItem(placement: .navigation) {
                     Button(action: {
-                        withAnimation(navAnimation) {
+                        withAnimation(navToPlayerAnimation) {
                             showHome.toggle()
                         }
                     }) {
@@ -122,7 +124,7 @@ struct ContentView: View {
                 let newIsWide = newSize.width >= 600
                 if newIsWide != wasWide {
                     wasWide = newIsWide
-                    withAnimation(navAnimation) {
+                    withAnimation(navToPlayerAnimation) {
                         isPlaylistVisible = newIsWide
                     }
                 }
@@ -130,7 +132,7 @@ struct ContentView: View {
             }
             .onChange(of: engine.currentTrackIndex) { _, newIndex in
                 guard newIndex != nil, isHomeVisible, !engine.queue.isEmpty else { return }
-                withAnimation(navAnimation) { showHome = false }
+                withAnimation(navToPlayerAnimation) { showHome = false }
             }
         }
         .frame(minWidth: 400, minHeight: 540)
@@ -158,14 +160,18 @@ struct ContentView: View {
                            idealWidth: isWide ? 280 : nil,
                            maxWidth: isWide ? 280 : .infinity,
                            maxHeight: .infinity)
-                    .background(Color.black.opacity(0.2))
+                    .background {
+                        Rectangle()
+                            .fill(.ultraThinMaterial.opacity(0.65))
+                            .ariesGlass(.regular, in: Rectangle())
+                    }
             }
 
             if isWide || !isPlaylistVisible {
                 PlayerView(
                     engine: engine,
                     togglePlaylist: {
-                        withAnimation(navAnimation) {
+                        withAnimation(navToPlayerAnimation) {
                             isPlaylistVisible.toggle()
                         }
                     },
@@ -345,7 +351,7 @@ struct HoverZoomButton: View {
                 .foregroundColor(isPrimary ? .white : .primary)
                 .frame(width: 160, height: 40)
                 .background(isPrimary ? Color.accentColor.opacity(0.6) : Color.secondary.opacity(0.2))
-                .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .ariesGlass(.interactive, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .scaleEffect(isHovered ? 1.05 : 1.0)
                 .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isHovered)
@@ -434,6 +440,7 @@ private struct HomeNowPlayingBar: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .ariesGlass(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(.white.opacity(isHovered ? 0.18 : 0.08), lineWidth: 1)

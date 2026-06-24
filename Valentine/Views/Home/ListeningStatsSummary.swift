@@ -39,7 +39,7 @@ struct ListeningStatsSummary: View {
         .background {
             RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium, style: .continuous)
                 .fill(.ultraThinMaterial.opacity(0.5))
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium, style: .continuous))
+                .ariesGlass(.regular, in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium, style: .continuous))
         }
         .overlay(
             RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium, style: .continuous)

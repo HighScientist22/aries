@@ -64,6 +64,7 @@ struct GeneralSettingsView: View {
     @AppStorage("menuBarShowOnlyWhenPlaying") private var menuBarShowOnlyWhenPlaying = true
     @AppStorage("launchAtLogin") private var launchAtLogin = false
     @AppStorage("albumGridDensity") private var albumGridDensity = AlbumGridDensity.comfortable.rawValue
+    @AppStorage(LiquidGlassSettings.enabledKey) private var liquidGlassEnabled = true
     @EnvironmentObject var navigation: AppNavigation
     @State private var selectGreetingText: Bool = false
 
@@ -85,6 +86,11 @@ struct GeneralSettingsView: View {
                         .padding(.top, 4)
                 }
                 .padding(.vertical, 8)
+
+                Toggle("Liquid Glass effects", isOn: $liquidGlassEnabled)
+                Text("Uses macOS glass materials across the library, player, and controls. Turn off for a flatter, classic look.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
             VStack(alignment: .leading, spacing: 12) {
                 Text("Custom Greeting")
