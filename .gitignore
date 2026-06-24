@@ -5,3 +5,6 @@ Valentine/Config/Secrets.swift
 # Accidental Finder duplicates
 Valentine/Config/Secrets.example copy.swift
 **/Secrets.example copy.swift
+
+# Cursor IDE config (local only)
+.cursor/
