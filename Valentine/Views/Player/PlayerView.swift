@@ -114,6 +114,13 @@ struct PlayerView: View {
                         .foregroundStyle(.tertiary)
                 }
 
+                if let libraryTrack = currentLibraryTrack,
+                   let dr = library.dynamicRange(for: libraryTrack.id) {
+                    Text(String(format: "%.0f DR", dr))
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.tertiary)
+                }
+
                 if let album = engine.currentTrack?.album, !album.isEmpty {
                     Menu {
                         if let libraryTrack = currentLibraryTrack,
@@ -173,6 +180,10 @@ struct PlayerView: View {
             VolumeControlView(engine: engine)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 32)
+                .layoutPriority(2)
+
+            OutputDevicePicker(engine: engine)
+                .padding(.bottom, 4)
                 .layoutPriority(2)
 
             Spacer(minLength: 0)
@@ -276,6 +287,7 @@ struct PlayerView: View {
 
             Spacer(minLength: 0)
         }
+        .horizontalScrollToSkip(onPrevious: { engine.previousTrack() }, onNext: { engine.nextTrack() })
         .safeAreaPadding(.top, 24)
         .safeAreaPadding(.bottom, 16)
     }

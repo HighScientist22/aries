@@ -15,6 +15,9 @@ class LibraryStore: ObservableObject {
     @Published private(set) var artistGroups: [ArtistGroup] = []
     @Published private(set) var genreGroups: [GenreGroup] = []
     @Published private(set) var yearGroups: [YearGroup] = []
+    @Published private(set) var composerGroups: [ComposerGroup] = []
+    @Published private(set) var folderGroups: [FolderGroup] = []
+    @Published private(set) var playlistFolders: [PlaylistFolder] = []
     @Published private(set) var recentlyPlayedIDs: [UUID] = []
     @Published private(set) var favoriteTrackIDs: Set<UUID> = []
     @Published private(set) var favoriteAlbumIDs: Set<String> = []
@@ -42,6 +45,7 @@ class LibraryStore: ObservableObject {
     private let recentURL: URL
     private let favoritesURL: URL
     private let playlistsURL: URL
+    private let playlistFoldersURL: URL
     private let listeningStatsURL: URL
     private let identificationURL: URL
     private let ratingsURL: URL
@@ -61,6 +65,7 @@ class LibraryStore: ObservableObject {
         recentURL = baseURL.appendingPathComponent("recent.json")
         favoritesURL = baseURL.appendingPathComponent("favorites.json")
         playlistsURL = baseURL.appendingPathComponent("playlists.json")
+        playlistFoldersURL = baseURL.appendingPathComponent("playlist-folders.json")
         listeningStatsURL = baseURL.appendingPathComponent("listening-stats.json")
         identificationURL = baseURL.appendingPathComponent("identification.json")
         ratingsURL = baseURL.appendingPathComponent("ratings.json")
@@ -97,6 +102,10 @@ class LibraryStore: ObservableObject {
         if let data = try? Data(contentsOf: playlistsURL),
            let decoded = try? JSONDecoder().decode([SavedPlaylist].self, from: data) {
             playlists = decoded.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
+        if let data = try? Data(contentsOf: playlistFoldersURL),
+           let decoded = try? JSONDecoder().decode([PlaylistFolder].self, from: data) {
+            playlistFolders = decoded.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         }
         if let data = try? Data(contentsOf: listeningStatsURL),
            let decoded = try? JSONDecoder().decode(ListeningStats.self, from: data) {
@@ -327,11 +336,31 @@ class LibraryStore: ObservableObject {
             async let artists = Task.detached(priority: .userInitiated) { groupArtists(from: snapshot) }.value
             async let genres = Task.detached(priority: .userInitiated) { groupGenres(from: snapshot) }.value
             async let years = Task.detached(priority: .userInitiated) { groupYears(from: snapshot) }.value
+            async let composers = Task.detached(priority: .userInitiated) { groupComposers(from: snapshot) }.value
             albumGroups = await albums
             artistGroups = await artists
             genreGroups = await genres
             yearGroups = await years
+            composerGroups = await composers
+            folderGroups = buildFolderGroups(from: snapshot)
         }
+    }
+
+    private func buildFolderGroups(from tracks: [LibraryTrack]) -> [FolderGroup] {
+        var grouped: [String: [LibraryTrack]] = [:]
+        for track in tracks {
+            guard let url = resolveURL(for: track) else { continue }
+            let folder = url.deletingLastPathComponent().standardizedFileURL.path
+            grouped[folder, default: []].append(track)
+        }
+        return grouped.map { path, folderTracks in
+            FolderGroup(
+                path: path,
+                name: URL(fileURLWithPath: path).lastPathComponent,
+                tracks: folderTracks.sorted(by: sortTracksForAlbum)
+            )
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     func markPlayed(_ id: UUID) {
@@ -564,6 +593,29 @@ class LibraryStore: ObservableObject {
         listeningStats.playHistory.first { $0.trackID == trackID }?.playedAt
     }
 
+    func resumePosition(for trackID: UUID) -> TimeInterval? {
+        listeningStats.trackResumePositions[trackID]
+    }
+
+    func setResumePosition(_ time: TimeInterval, for trackID: UUID) {
+        listeningStats.trackResumePositions[trackID] = time
+        persistListeningStats()
+    }
+
+    func clearResumePosition(for trackID: UUID) {
+        listeningStats.trackResumePositions.removeValue(forKey: trackID)
+        persistListeningStats()
+    }
+
+    func dynamicRange(for trackID: UUID) -> Double? {
+        listeningStats.trackDynamicRange[trackID]
+    }
+
+    func setDynamicRange(_ value: Double, for trackID: UUID) {
+        listeningStats.trackDynamicRange[trackID] = value
+        persistListeningStats()
+    }
+
     private func backfillTrackPlayCountsIfNeeded() {
         guard listeningStats.trackPlayCounts.isEmpty, !listeningStats.playHistory.isEmpty else { return }
         var counts: [UUID: Int] = [:]
@@ -661,6 +713,45 @@ class LibraryStore: ObservableObject {
         playlists[index].dateModified = Date()
         playlists.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         persistPlaylists()
+    }
+
+    func createPlaylistFolder(named name: String) -> PlaylistFolder {
+        let folder = PlaylistFolder(name: name)
+        playlistFolders.append(folder)
+        playlistFolders.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        persistPlaylistFolders()
+        return folder
+    }
+
+    func deletePlaylistFolder(_ folder: PlaylistFolder) {
+        playlistFolders.removeAll { $0.id == folder.id }
+        for index in playlists.indices where playlists[index].folderID == folder.id {
+            playlists[index].folderID = nil
+        }
+        persistPlaylistFolders()
+        persistPlaylists()
+    }
+
+    func movePlaylist(_ playlist: SavedPlaylist, to folderID: UUID?) {
+        guard let index = playlists.firstIndex(where: { $0.id == playlist.id }) else { return }
+        playlists[index].folderID = folderID
+        playlists[index].dateModified = Date()
+        persistPlaylists()
+    }
+
+    func playlists(in folderID: UUID?) -> [SavedPlaylist] {
+        playlists.filter { $0.folderID == folderID }
+    }
+
+    func exportM3U(for playlist: SavedPlaylist) -> String {
+        var lines = ["#EXTM3U"]
+        for track in tracks(for: playlist) {
+            guard let url = resolveURL(for: track) else { continue }
+            let durationMs = Int(track.duration * 1000)
+            lines.append("#EXTINF:\(durationMs),\(track.artist) - \(track.title)")
+            lines.append(url.path)
+        }
+        return lines.joined(separator: "\n")
     }
 
     func tracks(for playlist: SavedPlaylist) -> [LibraryTrack] {
@@ -774,6 +865,11 @@ class LibraryStore: ObservableObject {
     private func persistPlaylists() {
         guard let data = try? JSONEncoder().encode(playlists) else { return }
         try? data.write(to: playlistsURL, options: .atomic)
+    }
+
+    private func persistPlaylistFolders() {
+        guard let data = try? JSONEncoder().encode(playlistFolders) else { return }
+        try? data.write(to: playlistFoldersURL, options: .atomic)
     }
 
     private func persist() {
@@ -912,6 +1008,7 @@ class LibraryStore: ObservableObject {
                 year: track.year,
                 trackNumber: track.trackNumber,
                 discNumber: track.discNumber,
+                composer: track.composer,
                 audioCodec: track.audioFormat?.codec,
                 audioSampleRate: track.audioFormat?.sampleRate,
                 audioBitDepth: track.audioFormat?.bitDepth,
@@ -1146,6 +1243,7 @@ class LibraryStore: ObservableObject {
             year: track.year,
             trackNumber: track.trackNumber,
             discNumber: track.discNumber,
+            composer: track.composer,
             audioCodec: track.audioFormat?.codec,
             audioSampleRate: track.audioFormat?.sampleRate,
             audioBitDepth: track.audioFormat?.bitDepth,

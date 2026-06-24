@@ -46,7 +46,7 @@ class AudioEngine: ObservableObject {
     }
     @Published var volume: Float = 1.0 {
         didSet {
-            engine.mainMixerNode.outputVolume = volume
+            applyOutputVolume()
         }
     }
 
@@ -130,6 +130,7 @@ class AudioEngine: ObservableObject {
         }
 
         configureEngine()
+        restoreOutputDeviceIfNeeded()
         setupRemoteCommandCenter()
         equalizer.load()
         applyEqualizer()
@@ -146,6 +147,7 @@ class AudioEngine: ObservableObject {
                 // engine. `equalizer.load()` updates the model from defaults.
                 self.equalizer.load()
                 self.applyEqualizer()
+                self.applyOutputVolume()
             }
         }
     }
@@ -183,6 +185,35 @@ class AudioEngine: ObservableObject {
 
         engine.mainMixerNode.outputVolume = volume
         engine.prepare()
+    }
+
+    func setOutputDevice(_ deviceID: UInt32) -> Bool {
+        let success = AudioOutputDevices.setOutputDevice(deviceID, on: engine)
+        if success {
+            UserDefaults.standard.set(Int(deviceID), forKey: "selectedOutputDeviceID")
+        }
+        return success
+    }
+
+    private func restoreOutputDeviceIfNeeded() {
+        let stored = UInt32(UserDefaults.standard.integer(forKey: "selectedOutputDeviceID"))
+        guard stored != 0 else { return }
+        _ = AudioOutputDevices.setOutputDevice(stored, on: engine)
+    }
+
+    private var replayGainEnabled: Bool {
+        UserDefaults.standard.object(forKey: "replayGainEnabled") as? Bool ?? false
+    }
+
+    private func replayGainLinearGain(for track: Track?) -> Float {
+        guard replayGainEnabled, let track else { return 1.0 }
+        let db = track.replayGainTrackDB ?? track.replayGainAlbumDB ?? 0
+        let linear = pow(10.0, Double(db) / 20.0)
+        return Float(min(max(linear, 0.1), 2.0))
+    }
+
+    private func applyOutputVolume() {
+        engine.mainMixerNode.outputVolume = volume * replayGainLinearGain(for: currentTrack)
     }
 
     private func startEngineIfNeeded() {
@@ -474,7 +505,17 @@ class AudioEngine: ObservableObject {
             track.artist = libTrack.artist
             track.album = libTrack.album
             track.duration = libTrack.duration
+            track.composer = libTrack.composer
             track.audioFormat = libTrack.audioFormat ?? AudioFormatInfo.inspect(url: url)
+            let replayGainOn = UserDefaults.standard.object(forKey: "replayGainEnabled") as? Bool ?? false
+            if replayGainOn {
+                await track.loadMetadata()
+                track.title = libTrack.title
+                track.artist = libTrack.artist
+                track.album = libTrack.album
+                track.duration = libTrack.duration
+                track.composer = libTrack.composer
+            }
             if let artURL = store.artworkURL(for: libTrack),
                let image = await ArtworkLoader.shared.image(at: artURL, maxPixelSize: 512) {
                 track.nsImage = image
@@ -524,6 +565,7 @@ class AudioEngine: ObservableObject {
         guard queue.indices.contains(index) else { return }
         let track = queue[index]
 
+        saveResumePositionForCurrentTrack()
         stopPlayback()
 
         do {
@@ -537,10 +579,20 @@ class AudioEngine: ObservableObject {
             return
         }
 
+        var resumeTime: TimeInterval = 0
+        if isResumePlaybackEnabled,
+           queueLibraryIDs.indices.contains(index),
+           let saved = libraryStore?.resumePosition(for: queueLibraryIDs[index]),
+           saved > 10,
+           track.duration > 15,
+           saved < track.duration - 15 {
+            resumeTime = saved
+        }
+
         currentTrackIndex = index
         duration = track.duration
-        currentTime = 0
-        segmentStartFrame = 0
+        currentTime = resumeTime
+        segmentStartFrame = AVAudioFramePosition(resumeTime * sampleRate)
 
         if queueLibraryIDs.indices.contains(index) {
             libraryStore?.markPlayed(queueLibraryIDs[index])
@@ -551,10 +603,16 @@ class AudioEngine: ObservableObject {
         LastFMService.shared.updateNowPlaying(track: track.title, artist: track.artist, album: track.album, duration: Int(track.duration))
         ListenBrainzService.shared.updateNowPlaying(track: track.title, artist: track.artist, album: track.album)
 
-        generateWaveform(for: track.url, generation: playbackGeneration)
+        let libraryID = queueLibraryIDs.indices.contains(index) ? queueLibraryIDs[index] : nil
+        generateWaveform(for: track.url, generation: playbackGeneration, libraryTrackID: libraryID)
+        applyOutputVolume()
 
         if autoPlay {
             play()
+        } else if resumeTime > 0 {
+            scheduleFromCurrentSegment()
+            isPlaying = false
+            updateNowPlayingInfo()
         } else {
             isPlaying = false
             updateNowPlayingInfo()
@@ -562,6 +620,27 @@ class AudioEngine: ObservableObject {
 
         fetchLyricsIfNeeded(for: index)
         persistQueueSoon()
+    }
+
+    private var isResumePlaybackEnabled: Bool {
+        UserDefaults.standard.object(forKey: "resumePlaybackPosition") as? Bool ?? true
+    }
+
+    private func saveResumePositionForCurrentTrack() {
+        guard isResumePlaybackEnabled,
+              let index = currentTrackIndex,
+              queueLibraryIDs.indices.contains(index),
+              duration > 0 else { return }
+        let libID = queueLibraryIDs[index]
+        let pos = currentTime
+        if pos > 10, pos < duration - 15 {
+            libraryStore?.setResumePosition(pos, for: libID)
+        }
+    }
+
+    private func clearResumeForTrack(at index: Int) {
+        guard queueLibraryIDs.indices.contains(index) else { return }
+        libraryStore?.clearResumePosition(for: queueLibraryIDs[index])
     }
 
     private var isGaplessEnabled: Bool {
@@ -754,6 +833,7 @@ class AudioEngine: ObservableObject {
     }
 
     func pause() {
+        saveResumePositionForCurrentTrack()
         playerNode.pause()
         isPlaying = false
         stopDisplayLink()
@@ -777,6 +857,10 @@ class AudioEngine: ObservableObject {
 
     func nextTrack(isAutomatic: Bool = false) {
         guard let currentIndex = currentTrackIndex else { return }
+
+        if isAutomatic {
+            clearResumeForTrack(at: currentIndex)
+        }
 
         if isAutomatic && repeatMode == .one {
             seek(to: 0)
@@ -1085,7 +1169,7 @@ class AudioEngine: ObservableObject {
         updateNowPlayingInfo()
     }
 
-    private func generateWaveform(for url: URL, generation: Int) {
+    private func generateWaveform(for url: URL, generation: Int, libraryTrackID: UUID? = nil) {
         Task.detached(priority: .utility) {
             do {
                 if let cached = Self.loadCachedWaveform(for: url) {
@@ -1110,6 +1194,9 @@ class AudioEngine: ObservableObject {
                 var globalFrame = 0
                 var pointIndex = 0
                 var pointMax: Float = 0
+                var globalPeak: Float = 0
+                var sumSquares: Double = 0
+                var sampleCount = 0
 
                 while globalFrame < totalFrames {
                     let framesToRead = min(chunkSize, AVAudioFrameCount(totalFrames - globalFrame))
@@ -1125,6 +1212,9 @@ class AudioEngine: ObservableObject {
                         for channel in 0..<channelCount {
                             samplePeak = max(samplePeak, abs(floatChannelData[channel][frame]))
                         }
+                        globalPeak = max(globalPeak, samplePeak)
+                        sumSquares += Double(samplePeak * samplePeak)
+                        sampleCount += 1
                         pointMax = max(pointMax, samplePeak)
 
                         let framesSeen = globalFrame + frame + 1
@@ -1148,6 +1238,16 @@ class AudioEngine: ObservableObject {
                 let overallMax = peaks.max() ?? 1
                 let normalized = peaks.map { $0 / max(overallMax, 0.0001) }
                 Self.saveCachedWaveform(normalized, for: url)
+
+                if sampleCount > 0, globalPeak > 0 {
+                    let rms = sqrt(sumSquares / Double(sampleCount))
+                    let dr = 20 * log10(Double(globalPeak) / max(rms, 1e-10))
+                    if let libraryTrackID {
+                        await MainActor.run {
+                            self.libraryStore?.setDynamicRange(dr, for: libraryTrackID)
+                        }
+                    }
+                }
 
                 await MainActor.run {
                     guard self.playbackGeneration == generation else { return }
@@ -1177,7 +1277,8 @@ class AudioEngine: ObservableObject {
               let cacheModified = cacheAttrs[.modificationDate] as? Date,
               cacheModified >= modified,
               let data = try? Data(contentsOf: cacheURL),
-              data.count == 100 * MemoryLayout<Float>.size else { return nil }
+              data.count >= 48 * MemoryLayout<Float>.size,
+              data.count.isMultiple(of: MemoryLayout<Float>.size) else { return nil }
 
         return data.withUnsafeBytes { buffer in
             Array(buffer.bindMemory(to: Float.self))

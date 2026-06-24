@@ -14,6 +14,8 @@ final class AppNavigation: ObservableObject {
     @Published var focusGreetingField = false
     @Published var showLibrarySearch = false
     @Published var showSmartPlaylistBuilder = false
+    @Published var showKeyboardShortcuts = false
+    @Published var librarySearchQuery = ""
 
     @Published var albumIDToOpen: String?
 
@@ -27,6 +29,10 @@ final class AppNavigation: ObservableObject {
 
     func openLibrarySearch() {
         showLibrarySearch = true
+    }
+
+    func openKeyboardShortcuts() {
+        showKeyboardShortcuts = true
     }
 
     func openSmartPlaylistBuilder() {

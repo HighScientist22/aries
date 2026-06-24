@@ -9,6 +9,8 @@ struct MiniPlayerView: View {
     @State private var showMiniLyrics = false
     @AppStorage("miniPlayerGlassMode") private var miniPlayerGlassMode = 0
     @AppStorage("showHomeWaveform") private var showHomeWaveform = true
+    @AppStorage("miniPlayerPinned") private var miniPlayerPinned = false
+    @AppStorage("isMiniPlayerMode") private var isMiniPlayerMode = false
     @Environment(\.colorScheme) var colorScheme
     @ObservedObject var appearance = LyricsAppearanceManager.shared
     @State private var cachedMiniGreeting: String = ""
@@ -52,6 +54,23 @@ struct MiniPlayerView: View {
     
     var body: some View {
         VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Button {
+                    miniPlayerPinned.toggle()
+                    MainWindowManager.shared.isPinned = miniPlayerPinned
+                    MainWindowManager.shared.refreshWindowLevel()
+                } label: {
+                    Image(systemName: miniPlayerPinned ? "pin.fill" : "pin")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(miniPlayerPinned ? theme.accent : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help(miniPlayerPinned ? "Unpin mini player" : "Keep mini player on top")
+                .padding(.trailing, 16)
+                .padding(.top, 8)
+            }
+
             if engine.currentTrack == nil {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
@@ -209,6 +228,7 @@ struct MiniPlayerView: View {
             }
         }
         .frame(width: 480, height: showMiniLyrics ? 200 : 140)
+        .horizontalScrollToSkip(onPrevious: { engine.previousTrack() }, onNext: { engine.nextTrack() })
         .background(
             ZStack {
                 if miniPlayerGlassMode == 1 {
@@ -231,6 +251,10 @@ struct MiniPlayerView: View {
             if cachedMiniGreeting.isEmpty {
                 cachedMiniGreeting = greetingText()
             }
+            miniPlayerPinned = MainWindowManager.shared.isPinned
+        }
+        .onChange(of: showMiniLyrics) { _, expanded in
+            MainWindowManager.shared.updateMiniPlayerHeight(expanded ? 200 : 140)
         }
     }
 

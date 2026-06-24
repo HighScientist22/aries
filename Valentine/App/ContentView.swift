@@ -105,6 +105,13 @@ struct ContentView: View {
                     .help(isHomeVisible ? "Show Player" : "Show Library")
                     .contentTransition(.symbolEffect(.replace))
                 }
+                if isHomeVisible {
+                    ToolbarItem(placement: .automatic) {
+                        TextField("Search library", text: $navigation.librarySearchQuery)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(minWidth: 180, idealWidth: 240, maxWidth: 320)
+                    }
+                }
             }
             .toolbarBackground(.hidden, for: .windowToolbar)
             .onDrop(of: ["public.file-url"], isTargeted: $isTargeted) { providers in
@@ -136,6 +143,9 @@ struct ContentView: View {
         .sheet(isPresented: $navigation.showSmartPlaylistBuilder) {
             SmartPlaylistBuilderView(library: library)
                 .environmentObject(theme)
+        }
+        .sheet(isPresented: $navigation.showKeyboardShortcuts) {
+            KeyboardShortcutsView()
         }
     }
 

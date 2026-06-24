@@ -32,6 +32,19 @@ nonisolated struct YearGroup: Identifiable, Hashable, Sendable {
     var id: Int { year }
 }
 
+nonisolated struct ComposerGroup: Identifiable, Hashable, Sendable {
+    let name: String
+    let tracks: [LibraryTrack]
+    var id: String { name }
+}
+
+nonisolated struct FolderGroup: Identifiable, Hashable, Sendable {
+    let path: String
+    let name: String
+    let tracks: [LibraryTrack]
+    var id: String { path }
+}
+
 nonisolated func groupAlbums(from tracks: [LibraryTrack]) -> [AlbumGroup] {
     let grouped = Dictionary(grouping: tracks) { track in
         "\(track.album ?? track.title)|\(track.albumArtist)"
@@ -92,6 +105,19 @@ nonisolated func groupYears(from tracks: [LibraryTrack]) -> [YearGroup] {
         YearGroup(year: year, tracks: pairs.map(\.1).sorted(by: sortTracksForAlbum))
     }
     .sorted { $0.year > $1.year }
+}
+
+nonisolated func groupComposers(from tracks: [LibraryTrack]) -> [ComposerGroup] {
+    let withComposer = tracks.compactMap { track -> (String, LibraryTrack)? in
+        guard let composer = track.composer?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !composer.isEmpty else { return nil }
+        return (composer, track)
+    }
+    let grouped = Dictionary(grouping: withComposer, by: \.0)
+    return grouped.map { name, pairs in
+        ComposerGroup(name: name, tracks: pairs.map(\.1).sorted(by: sortTracksForAlbum))
+    }
+    .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 }
 
 func albumsForGenre(_ genre: GenreGroup, from albumGroups: [AlbumGroup]) -> [AlbumGroup] {

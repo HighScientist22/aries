@@ -13,6 +13,8 @@ struct ListeningStats: Codable {
     var albumPlayCounts: [String: Int] = [:]
     var albumListenSeconds: [String: Double] = [:]
     var trackPlayCounts: [UUID: Int] = [:]
+    var trackResumePositions: [UUID: TimeInterval] = [:]
+    var trackDynamicRange: [UUID: Double] = [:]
     var playHistory: [PlayHistoryEntry] = []
 }
 

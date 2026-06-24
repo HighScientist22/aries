@@ -21,6 +21,7 @@ nonisolated struct LibraryTrack: Codable, Identifiable, Hashable, Sendable {
     var year: Int?
     var trackNumber: Int?
     var discNumber: Int?
+    var composer: String?
     var audioCodec: String?
     var audioSampleRate: Int?
     var audioBitDepth: Int?
@@ -39,6 +40,7 @@ nonisolated struct LibraryTrack: Codable, Identifiable, Hashable, Sendable {
         year: Int? = nil,
         trackNumber: Int? = nil,
         discNumber: Int? = nil,
+        composer: String? = nil,
         audioCodec: String? = nil,
         audioSampleRate: Int? = nil,
         audioBitDepth: Int? = nil,
@@ -56,6 +58,7 @@ nonisolated struct LibraryTrack: Codable, Identifiable, Hashable, Sendable {
         self.year = year
         self.trackNumber = trackNumber
         self.discNumber = discNumber
+        self.composer = composer
         self.audioCodec = audioCodec
         self.audioSampleRate = audioSampleRate
         self.audioBitDepth = audioBitDepth

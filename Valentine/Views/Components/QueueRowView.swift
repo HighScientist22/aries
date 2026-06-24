@@ -5,6 +5,8 @@ struct QueueRowView: View {
     let isPlaying: Bool
     let isSelectionMode: Bool
     let isSelected: Bool
+    var waveformPoints: [Float] = []
+    var playbackProgress: CGFloat = 0
     
     var body: some View {
         HStack(spacing: 12) {
@@ -37,6 +39,15 @@ struct QueueRowView: View {
                 Text(track.artist)
                     .font(.caption)
                     .foregroundColor(.secondary)
+
+                if isPlaying && !isSelectionMode && !waveformPoints.isEmpty {
+                    CompactWaveformView(
+                        points: waveformPoints,
+                        progress: playbackProgress,
+                        height: 16
+                    )
+                    .padding(.top, 2)
+                }
             }
             
             Spacer()

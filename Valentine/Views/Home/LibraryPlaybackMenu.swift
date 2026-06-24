@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 struct LibraryPlaybackMenu: ViewModifier {
     @ObservedObject var engine: AudioEngine
@@ -129,6 +130,18 @@ struct LibraryPlaybackMenu: ViewModifier {
                         library.isFavorite(track: track) ? "Unfavorite" : "Favorite",
                         systemImage: library.isFavorite(track: track) ? "heart.fill" : "heart"
                     )
+                }
+                if let url = library.resolveURL(for: track) {
+                    Button {
+                        QuickLookHelper.shared.preview(url: url)
+                    } label: {
+                        Label("Quick Look", systemImage: "eye")
+                    }
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    } label: {
+                        Label("Show in Finder", systemImage: "folder")
+                    }
                 }
             }
         }

@@ -13,6 +13,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = false
     }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        NotificationCenter.default.post(name: .openAudioFiles, object: urls)
+    }
 }
 
 @main
@@ -86,6 +90,7 @@ struct RootView: View {
             configureWindow(forMiniPlayer: isMiniPlayerMode)
             theme.update(from: engine.currentTrack?.nsImage, key: engine.currentTrack?.id.uuidString)
             engine.attachLibraryStore(library)
+            MenuBarController.shared.attach(engine: engine, theme: theme)
         }
         .onChange(of: engine.currentTrackIndex) { _, _ in
             theme.update(from: engine.currentTrack?.nsImage, key: engine.currentTrack?.id.uuidString)
@@ -118,6 +123,19 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openLibrarySearch)) { _ in
             navigation.openLibrarySearch()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .showKeyboardShortcuts)) { _ in
+            navigation.openKeyboardShortcuts()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in
+            openWindow(id: "settings")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openAudioFiles)) { notification in
+            guard let urls = notification.object as? [URL], !urls.isEmpty else { return }
+            engine.addTracks(urls)
+            library.importFiles(urls)
+            UserDefaults.standard.set(false, forKey: "isMiniPlayerMode")
+            NSApp.activate(ignoringOtherApps: true)
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
             engine.persistQueueNow()
         }
@@ -140,43 +158,12 @@ struct RootView: View {
     private func configureWindow(forMiniPlayer: Bool) {
         #if os(macOS)
         DispatchQueue.main.async {
-            for window in NSApplication.shared.windows {
-                if window.className == "NSWindow" || window.className.contains("SwiftUI") {
-                    let id = window.identifier?.rawValue ?? ""
-                    if id.contains("settings") || id.contains("about") { continue }
-
-                    window.level = forMiniPlayer ? .floating : .normal
-                    window.standardWindowButton(.closeButton)?.isHidden = forMiniPlayer
-                    window.standardWindowButton(.miniaturizeButton)?.isHidden = forMiniPlayer
-                    window.standardWindowButton(.zoomButton)?.isHidden = forMiniPlayer
-                    window.isMovableByWindowBackground = true
-
-                    if forMiniPlayer {
-                        window.backgroundColor = .clear
-                        window.isOpaque = false
-                        window.hasShadow = true
-
-                        var newFrame = window.frame
-                        let oldHeight = newFrame.size.height
-                        newFrame.size = NSSize(width: 480, height: 140)
-                        newFrame.origin.y += (oldHeight - 140)
-                        window.setFrame(newFrame, display: true, animate: true)
-                    } else {
-                        window.backgroundColor = .windowBackgroundColor
-                        window.isOpaque = true
-
-                        var newFrame = window.frame
-                        let oldHeight = newFrame.size.height
-
-                        let targetWidth = max(400, CGFloat(lastNormalWidth))
-                        let targetHeight = max(540, CGFloat(lastNormalHeight))
-
-                        newFrame.size = NSSize(width: targetWidth, height: targetHeight)
-                        newFrame.origin.y -= (targetHeight - oldHeight)
-                        window.setFrame(newFrame, display: true, animate: true)
-                    }
-                }
-            }
+            guard let window = MainWindowManager.shared.mainAppWindow() else { return }
+            MainWindowManager.shared.configureMainWindow(
+                window,
+                miniPlayer: forMiniPlayer,
+                normalSize: CGSize(width: lastNormalWidth, height: lastNormalHeight)
+            )
         }
         #endif
     }
@@ -235,6 +222,11 @@ struct AriesCommands: Commands {
         }
 
         CommandGroup(replacing: .help) {
+            Button(action: { NotificationCenter.default.post(name: .showKeyboardShortcuts, object: nil) }) {
+                Label("Keyboard Shortcuts", systemImage: "keyboard")
+            }
+            .keyboardShortcut("/", modifiers: [.command])
+            Divider()
             Button(action: { NotificationCenter.default.post(name: .reinstallMutagen, object: nil) }) {
                 Label("Reinstall Mutagen", systemImage: "arrow.triangle.2.circlepath")
             }

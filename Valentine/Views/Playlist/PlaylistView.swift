@@ -275,7 +275,11 @@ struct PlaylistView: View {
             track: track,
             isPlaying: engine.currentTrackIndex == index,
             isSelectionMode: isSelectionMode,
-            isSelected: selectedTracks.contains(track.id)
+            isSelected: selectedTracks.contains(track.id),
+            waveformPoints: engine.currentTrackIndex == index ? engine.waveformPoints : [],
+            playbackProgress: engine.currentTrackIndex == index && engine.duration > 0
+                ? CGFloat(engine.currentTime / engine.duration)
+                : 0
         )
         .contentShape(Rectangle())
         .onTapGesture {

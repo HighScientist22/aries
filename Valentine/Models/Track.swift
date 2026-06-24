@@ -22,6 +22,9 @@ struct Track: Identifiable, Hashable {
     var year: Int?
     var trackNumber: Int?
     var discNumber: Int?
+    var composer: String?
+    var replayGainTrackDB: Float?
+    var replayGainAlbumDB: Float?
     var audioFormat: AudioFormatInfo?
 
     init(url: URL) {
@@ -38,6 +41,9 @@ struct Track: Identifiable, Hashable {
         self.year = nil
         self.trackNumber = nil
         self.discNumber = nil
+        self.composer = nil
+        self.replayGainTrackDB = nil
+        self.replayGainAlbumDB = nil
         self.audioFormat = nil
     }
     
@@ -100,6 +106,18 @@ struct Track: Identifiable, Hashable {
                                 self.trackNumber = await Self.parseIntMetadata(item)
                             } else if identifier.contains("discNumber") || identifier.hasSuffix("/disk") {
                                 self.discNumber = await Self.parseIntMetadata(item)
+                            } else if identifier.lowercased().contains("composer")
+                                        || identifier.hasSuffix("/©wrt")
+                                        || identifier.contains("TCOM") {
+                                if let value = try? await item.load(.stringValue), !value.isEmpty {
+                                    self.composer = value
+                                }
+                            } else if identifier.lowercased().contains("replaygain_track_gain")
+                                        || identifier.lowercased().contains("r128_track_gain") {
+                                self.replayGainTrackDB = await Self.parseReplayGainDB(item)
+                            } else if identifier.lowercased().contains("replaygain_album_gain")
+                                        || identifier.lowercased().contains("r128_album_gain") {
+                                self.replayGainAlbumDB = await Self.parseReplayGainDB(item)
                             }
                         }
                         break
@@ -118,6 +136,14 @@ struct Track: Identifiable, Hashable {
 
     mutating func updateLyrics(from text: String) {
         self.lyrics = Self.parseLyricsText(text, duration: duration)
+    }
+
+    private static func parseReplayGainDB(_ item: AVMetadataItem) async -> Float? {
+        guard let string = try? await item.load(.stringValue) else { return nil }
+        let cleaned = string
+            .replacingOccurrences(of: "dB", with: "", options: .caseInsensitive)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return Float(cleaned)
     }
 
     private static func parseIntMetadata(_ item: AVMetadataItem) async -> Int? {

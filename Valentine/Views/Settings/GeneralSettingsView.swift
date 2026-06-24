@@ -58,6 +58,11 @@ struct GeneralSettingsView: View {
     @AppStorage("appTheme") private var appTheme = 0
     @AppStorage("customGreeting") private var customGreeting: String = ""
     @AppStorage("showHomeWaveform") private var showHomeWaveform = true
+    @AppStorage("resumePlaybackPosition") private var resumePlaybackPosition = true
+    @AppStorage("replayGainEnabled") private var replayGainEnabled = false
+    @AppStorage("menuBarEnabled") private var menuBarEnabled = true
+    @AppStorage("menuBarShowOnlyWhenPlaying") private var menuBarShowOnlyWhenPlaying = true
+    @AppStorage("launchAtLogin") private var launchAtLogin = false
     @AppStorage("albumGridDensity") private var albumGridDensity = AlbumGridDensity.comfortable.rawValue
     @EnvironmentObject var navigation: AppNavigation
     @State private var selectGreetingText: Bool = false
@@ -104,6 +109,16 @@ struct GeneralSettingsView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
 
+                Toggle("Resume playback position", isOn: $resumePlaybackPosition)
+                Text("Remembers where you left off on each track (after 10 seconds).")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Toggle("ReplayGain volume leveling", isOn: $replayGainEnabled)
+                Text("Applies track or album gain tags when available.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("Crossfade")
@@ -126,6 +141,24 @@ struct GeneralSettingsView: View {
                         Text(density.label).tag(density.rawValue)
                     }
                 }
+            }
+
+            Section(header: Text("Menu Bar")) {
+                Toggle("Show menu bar controller", isOn: $menuBarEnabled)
+                Toggle("Only when music is playing", isOn: $menuBarShowOnlyWhenPlaying)
+                Text("Left-click the menu bar item to play or pause. Right-click for more controls.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Section(header: Text("System")) {
+                Toggle("Launch Aries at login", isOn: $launchAtLogin)
+                    .onChange(of: launchAtLogin) { _, enabled in
+                        LaunchAtLoginHelper.setEnabled(enabled)
+                    }
+                    .onAppear {
+                        launchAtLogin = LaunchAtLoginHelper.isEnabled
+                    }
             }
 
             Section(header: Text("Synced Lyrics Effects")) {

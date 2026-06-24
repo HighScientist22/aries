@@ -19,6 +19,7 @@ struct HomeView: View {
     @State private var activityTab: RecentActivityTab = .added
     @State private var detailAlbum: AlbumGroup?
     @State private var detailArtist: ArtistGroup?
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @AppStorage("albumGridDensity") private var albumGridDensity = AlbumGridDensity.comfortable.rawValue
 
     private var albums: [AlbumGroup] { library.albumGroups }
@@ -28,15 +29,18 @@ struct HomeView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
-                .frame(width: 220)
-                .background(.ultraThinMaterial.opacity(0.55))
-
-            Divider().opacity(0.25)
-
+                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
+        } detail: {
             Group {
-                if library.tracks.isEmpty {
+                if !navigation.librarySearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    LibraryInlineSearchResults(
+                        engine: engine,
+                        library: library,
+                        query: navigation.librarySearchQuery
+                    )
+                } else if library.tracks.isEmpty {
                     emptyLibrary
                 } else if let album = detailAlbum {
                     AlbumDetailView(
@@ -69,6 +73,10 @@ struct HomeView: View {
                         favoritesBrowser
                     case .genres:
                         genresBrowser
+                    case .composers:
+                        composersBrowser
+                    case .folders:
+                        foldersBrowser
                     case .years:
                         yearsBrowser
                     case .year(let year):
@@ -83,6 +91,10 @@ struct HomeView: View {
                         )
                     case .genre(let name):
                         genreBrowser(name)
+                    case .composer(let name):
+                        composerBrowser(name)
+                    case .folder(let path):
+                        folderBrowser(path)
                     case .playlist(let id):
                         playlistBrowser(id)
                     }
@@ -107,6 +119,18 @@ struct HomeView: View {
                   let album = albums.first(where: { $0.id == albumID }) else { return }
             openAlbum(album)
             navigation.albumIDToOpen = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openAlbumFromSearch)) { notification in
+            guard let albumID = notification.object as? String,
+                  let album = albums.first(where: { $0.id == albumID }) else { return }
+            openAlbum(album)
+            navigation.librarySearchQuery = ""
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openArtistFromSearch)) { notification in
+            guard let name = notification.object as? String,
+                  let artist = libraryArtist(matching: name, from: library.tracks) else { return }
+            openArtist(artist)
+            navigation.librarySearchQuery = ""
         }
     }
 
@@ -138,6 +162,12 @@ struct HomeView: View {
                 if !library.genreGroups.isEmpty {
                     sidebarItem(.genres, icon: "guitars.fill", label: "Genres")
                 }
+                if !library.composerGroups.isEmpty {
+                    sidebarItem(.composers, icon: "person.text.rectangle", label: "Composers")
+                }
+                if !library.folderGroups.isEmpty {
+                    sidebarItem(.folders, icon: "folder.fill", label: "Folders")
+                }
                 if !library.yearGroups.isEmpty {
                     sidebarItem(.years, icon: "calendar", label: "Years")
                 }
@@ -145,9 +175,15 @@ struct HomeView: View {
                 sidebarItem(.favorites, icon: "heart.fill", label: "Favorites")
             }
 
-            if !library.playlists.isEmpty {
+            if !library.playlistFolders.isEmpty || !library.playlists.isEmpty {
                 sidebarGroup("Playlists") {
-                    ForEach(library.playlists) { playlist in
+                    ForEach(library.playlistFolders) { folder in
+                        sidebarPlaylistFolderHeader(folder)
+                        ForEach(library.playlists(in: folder.id)) { playlist in
+                            sidebarPlaylistItem(playlist, indented: true)
+                        }
+                    }
+                    ForEach(library.playlists(in: nil)) { playlist in
                         sidebarPlaylistItem(playlist)
                     }
                 }
@@ -165,11 +201,13 @@ struct HomeView: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 20)
         }
+        .background(.ultraThinMaterial.opacity(0.55))
     }
 
     private var newPlaylistMenu: some View {
         Menu {
             Button("New Playlist", action: createPlaylist)
+            Button("New Playlist Folder", action: createPlaylistFolder)
             Menu("New Smart Playlist") {
                 Button("Custom Rules…") {
                     navigation.openSmartPlaylistBuilder()
@@ -230,7 +268,31 @@ struct HomeView: View {
         .padding(.bottom, 16)
     }
 
-    private func sidebarPlaylistItem(_ playlist: SavedPlaylist) -> some View {
+    private func sidebarPlaylistFolderHeader(_ folder: PlaylistFolder) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "folder.fill")
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 18)
+                .foregroundStyle(.secondary)
+            Text(folder.name)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+        .padding(.bottom, 2)
+        .contextMenu {
+            Button(role: .destructive) {
+                library.deletePlaylistFolder(folder)
+            } label: {
+                Label("Delete Folder", systemImage: "trash")
+            }
+        }
+    }
+
+    private func sidebarPlaylistItem(_ playlist: SavedPlaylist, indented: Bool = false) -> some View {
         let isSelected = selectedSection == .playlist(playlist.id)
         return Button {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
@@ -240,6 +302,9 @@ struct HomeView: View {
             }
         } label: {
             HStack(spacing: 10) {
+                if indented {
+                    Spacer().frame(width: 8)
+                }
                 Image(systemName: playlist.isSmart ? "sparkles" : "music.note.list")
                     .font(.system(size: 13, weight: .medium))
                     .frame(width: 18)
@@ -262,6 +327,23 @@ struct HomeView: View {
         .buttonStyle(.plain)
         .padding(.horizontal, 8)
         .contextMenu {
+            if !library.playlistFolders.isEmpty {
+                Menu("Move to Folder") {
+                    Button("None") {
+                        library.movePlaylist(playlist, to: nil)
+                    }
+                    ForEach(library.playlistFolders) { folder in
+                        Button(folder.name) {
+                            library.movePlaylist(playlist, to: folder.id)
+                        }
+                    }
+                }
+            }
+            Button {
+                exportPlaylistM3U(playlist)
+            } label: {
+                Label("Export M3U…", systemImage: "square.and.arrow.up")
+            }
             Button(role: .destructive) {
                 library.deletePlaylist(playlist)
                 if selectedSection == .playlist(playlist.id) {
@@ -734,6 +816,245 @@ struct HomeView: View {
         }
     }
 
+    private var composersBrowser: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("Composers")
+                    .font(.system(size: 32, weight: .regular, design: .serif))
+                    .padding(.top, 24)
+
+                if library.composerGroups.isEmpty {
+                    LibraryEmptySectionHint(
+                        icon: "person.text.rectangle",
+                        title: "No composers found",
+                        message: "Composer tags appear when your files include them, or after Identify Library pulls credits from MusicBrainz.",
+                        actionTitle: "Open Library Settings",
+                        action: { navigation.openSettings(tab: .library) }
+                    )
+                } else {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 16)],
+                        spacing: 16
+                    ) {
+                        ForEach(library.composerGroups) { composer in
+                            Button {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+                                    selectedSection = .composer(composer.name)
+                                }
+                            } label: {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(composer.name)
+                                        .font(.headline)
+                                        .lineLimit(2)
+                                        .multilineTextAlignment(.leading)
+                                    Text("\(composer.tracks.count) tracks")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(16)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 48)
+        }
+    }
+
+    private func composerBrowser(_ name: String) -> some View {
+        let composer = library.composerGroups.first { $0.name == name }
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack(spacing: 12) {
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+                            selectedSection = .composers
+                        }
+                    } label: {
+                        Label("Composers", systemImage: "chevron.left")
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.accent)
+
+                    Text(name)
+                        .font(.system(size: 32, weight: .regular, design: .serif))
+                }
+                .padding(.top, 24)
+
+                if let composer {
+                    HStack(spacing: 12) {
+                        Button {
+                            engine.playFromLibrary(composer.tracks, startIndex: 0, store: library)
+                        } label: {
+                            Label("Play All", systemImage: "play.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 10)
+                                .background(theme.accent, in: Capsule())
+                                .foregroundStyle(.white)
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            engine.playFromLibrary(composer.tracks, startIndex: 0, store: library, shuffleTracks: true)
+                        } label: {
+                            Label("Shuffle", systemImage: "shuffle")
+                                .font(.subheadline.weight(.medium))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .glassEffect(.regular, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Works")
+                            .font(.title3.weight(.semibold))
+                        LazyVStack(spacing: 2) {
+                            ForEach(composer.tracks) { track in
+                                trackListRow(track)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 48)
+        }
+    }
+
+    private var foldersBrowser: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("Folders")
+                    .font(.system(size: 32, weight: .regular, design: .serif))
+                    .padding(.top, 24)
+
+                if library.folderGroups.isEmpty {
+                    LibraryEmptySectionHint(
+                        icon: "folder",
+                        title: "No folders found",
+                        message: "Import music from a folder to browse by filesystem location.",
+                        actionTitle: "Add Music",
+                        action: importToLibrary
+                    )
+                } else {
+                    LazyVStack(spacing: 2) {
+                        ForEach(library.folderGroups) { folder in
+                            Button {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+                                    selectedSection = .folder(folder.path)
+                                }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "folder.fill")
+                                        .foregroundStyle(theme.accent)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(folder.name)
+                                            .font(.subheadline.weight(.medium))
+                                            .lineLimit(1)
+                                        Text(folder.path)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer()
+                                    Text("\(folder.tracks.count)")
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.vertical, 10)
+                                .padding(.horizontal, 12)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 48)
+        }
+    }
+
+    private func folderBrowser(_ path: String) -> some View {
+        let folder = library.folderGroups.first { $0.path == path }
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack(spacing: 12) {
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+                            selectedSection = .folders
+                        }
+                    } label: {
+                        Label("Folders", systemImage: "chevron.left")
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.accent)
+
+                    Text(folder?.name ?? "Folder")
+                        .font(.system(size: 32, weight: .regular, design: .serif))
+                }
+                .padding(.top, 24)
+
+                if let folder {
+                    Text(folder.path)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+
+                    HStack(spacing: 12) {
+                        Button {
+                            engine.playFromLibrary(folder.tracks, startIndex: 0, store: library)
+                        } label: {
+                            Label("Play Folder", systemImage: "play.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 10)
+                                .background(theme.accent, in: Capsule())
+                                .foregroundStyle(.white)
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            engine.playFromLibrary(folder.tracks, startIndex: 0, store: library, shuffleTracks: true)
+                        } label: {
+                            Label("Shuffle", systemImage: "shuffle")
+                                .font(.subheadline.weight(.medium))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .glassEffect(.regular, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Tracks")
+                            .font(.title3.weight(.semibold))
+                        LazyVStack(spacing: 2) {
+                            ForEach(folder.tracks) { track in
+                                trackListRow(track)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 48)
+        }
+    }
+
     private var statsBrowser: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
@@ -977,6 +1298,13 @@ struct HomeView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(theme.accent)
+
+                        if let playlist {
+                            Button("Export M3U") {
+                                exportPlaylistM3U(playlist)
+                            }
+                            .buttonStyle(.bordered)
+                        }
                     }
 
                     LazyVStack(spacing: 2) {
@@ -1226,6 +1554,22 @@ struct HomeView: View {
         openSmartPlaylist(playlist)
     }
 
+    private func createPlaylistFolder() {
+        _ = library.createPlaylistFolder(named: "Folder \(library.playlistFolders.count + 1)")
+    }
+
+    private func exportPlaylistM3U(_ playlist: SavedPlaylist) {
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = "\(playlist.name).m3u"
+        if let m3uType = UTType(filenameExtension: "m3u") {
+            panel.allowedContentTypes = [m3uType]
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let content = library.exportM3U(for: playlist)
+        try? content.write(to: url, atomically: true, encoding: .utf8)
+    }
+
     private func openSmartPlaylist(_ playlist: SavedPlaylist) {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
             selectedSection = .playlist(playlist.id)
@@ -1273,8 +1617,10 @@ private struct RecentAlbumItem: Identifiable {
 }
 
 private enum HomeSection: Hashable {
-    case home, stats, duplicates, albums, artists, genres, years, tracks, favorites
+    case home, stats, duplicates, albums, artists, genres, composers, folders, years, tracks, favorites
     case genre(String)
+    case composer(String)
+    case folder(String)
     case year(Int)
     case playlist(UUID)
 }
